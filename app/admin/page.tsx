@@ -32,8 +32,8 @@ export default function AdminClinica() {
     }
     checkUser()
 
-    // 2. Escuchar cambios en la autenticación
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    // 2. Escuchar cambios en la autenticación con tipos explícitos
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
       setUser(session?.user ?? null)
     })
 
