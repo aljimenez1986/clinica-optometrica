@@ -1,4 +1,5 @@
 'use client'
+export const dynamic = 'force-dynamic'; // <--- Añade esta línea
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 
@@ -8,10 +9,16 @@ export default function AdminClinica() {
   const [user, setUser] = useState<any>(null)
 
   useEffect(() => {
-    // Verificar sesión al cargar
-    supabase.auth.getSession().then(({ data: { session } }) => setUser(session?.user))
-    if (user) fetchPacientes()
-  }, [user])
+    // Definimos una función asíncrona para manejar la sesión
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user ?? null);
+    };
+  
+    checkSession();
+    
+    if (user) fetchPacientes();
+  }, [user]);
 
   async function fetchPacientes() {
     const { data } = await supabase.from('pacientes').select('*')
