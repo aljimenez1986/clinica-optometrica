@@ -28,6 +28,8 @@ export default function AdminClinica() {
     graduacion_oi: '',
     observaciones: ''
   })
+  const [idDuplicado, setIdDuplicado] = useState(false)
+  const [verificandoId, setVerificandoId] = useState(false)
 
   useEffect(() => {
     // 1. Comprobar sesión al cargar la página
@@ -72,6 +74,24 @@ export default function AdminClinica() {
     setPacientes([])
   }
 
+  // Verificar si el ID del paciente ya existe
+  async function verificarIdPaciente(idPaciente: string): Promise<boolean> {
+    if (!idPaciente.trim()) return false
+    
+    const { data, error } = await supabase
+      .from('pacientes')
+      .select('id_paciente')
+      .eq('id_paciente', idPaciente.trim())
+      .limit(1)
+    
+    if (error) {
+      console.error('Error verificando ID:', error.message)
+      return false
+    }
+    
+    return (data && data.length > 0)
+  }
+
   async function guardarPaciente(e: React.FormEvent) {
     e.preventDefault()
     if (!form.id_paciente) return alert("El ID del paciente es obligatorio")
@@ -79,10 +99,25 @@ export default function AdminClinica() {
     if (form.genero === 'otro' && !form.genero_otro) return alert("Debe especificar el género cuando selecciona 'Otro'")
     if (!form.fecha_nacimiento) return alert("La fecha de nacimiento es obligatoria")
 
+    // Verificar si el ID ya existe
+    const idExiste = await verificarIdPaciente(form.id_paciente)
+    if (idExiste) {
+      setIdDuplicado(true)
+      alert("Error: El ID del paciente '" + form.id_paciente + "' ya existe. Por favor, use un ID diferente.")
+      return
+    }
+
+    setIdDuplicado(false)
     const { error } = await supabase.from('pacientes').insert([form])
     
     if (error) {
-      alert("Error al guardar: " + error.message)
+      // Si el error es por restricción única en la BD
+      if (error.message.includes('duplicate') || error.message.includes('unique')) {
+        setIdDuplicado(true)
+        alert("Error: El ID del paciente ya existe en la base de datos. Por favor, use un ID diferente.")
+      } else {
+        alert("Error al guardar: " + error.message)
+      }
     } else {
       setForm({ 
         id_paciente: '', 
@@ -96,7 +131,21 @@ export default function AdminClinica() {
         graduacion_oi: '', 
         observaciones: '' 
       })
+      setIdDuplicado(false)
       fetchPacientes()
+    }
+  }
+
+  // Verificar ID en tiempo real mientras el usuario escribe
+  async function handleIdPacienteChange(value: string) {
+    setForm({...form, id_paciente: value})
+    setIdDuplicado(false)
+    
+    if (value.trim().length > 0) {
+      setVerificandoId(true)
+      const existe = await verificarIdPaciente(value)
+      setIdDuplicado(existe)
+      setVerificandoId(false)
     }
   }
 
@@ -170,11 +219,28 @@ export default function AdminClinica() {
               <input 
                 type="text"
                 placeholder="Ej: PAC001" 
-                className="w-full border border-gray-300 p-2 rounded-lg text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                className={`w-full border p-2 rounded-lg text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none ${
+                  idDuplicado 
+                    ? 'border-red-500 bg-red-50' 
+                    : 'border-gray-300'
+                }`}
                 value={form.id_paciente}
-                onChange={e => setForm({...form, id_paciente: e.target.value})}
+                onChange={e => handleIdPacienteChange(e.target.value)}
                 required
               />
+              {verificandoId && (
+                <p className="text-xs text-gray-500 mt-1">Verificando...</p>
+              )}
+              {idDuplicado && !verificandoId && (
+                <p className="text-xs text-red-600 mt-1 font-medium">
+                  ⚠️ Este ID ya está en uso. Por favor, use un ID diferente.
+                </p>
+              )}
+              {!idDuplicado && !verificandoId && form.id_paciente.trim().length > 0 && (
+                <p className="text-xs text-green-600 mt-1 font-medium">
+                  ✓ ID disponible
+                </p>
+              )}
             </div>
 
             <div>
