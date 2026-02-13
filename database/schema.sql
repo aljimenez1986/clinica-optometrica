@@ -27,7 +27,6 @@ CREATE TABLE IF NOT EXISTS pacientes (
 -- Crear índices para mejorar el rendimiento
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pacientes_id_paciente_unique ON pacientes(id_paciente);
 CREATE INDEX IF NOT EXISTS idx_pacientes_created_at ON pacientes(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_pacientes_created_at ON pacientes(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_pacientes_fecha_nacimiento ON pacientes(fecha_nacimiento);
 
 -- Función para actualizar updated_at automáticamente
@@ -92,6 +91,9 @@ CREATE POLICY "Usuarios autenticados pueden eliminar pacientes"
 -- 4. Para verificar que todo funciona:
 --    SELECT * FROM pacientes;
 --
--- 5. Si la tabla ya existe y necesitas agregar la restricción única:
+-- 5. Si la tabla ya existe y necesitas agregar columnas faltantes:
+--    Ejecuta el script 'migration.sql' en lugar de este
+--
+-- 6. Si la tabla ya existe y solo necesitas agregar la restricción única:
 --    ALTER TABLE pacientes ADD CONSTRAINT pacientes_id_paciente_unique UNIQUE (id_paciente);
 
