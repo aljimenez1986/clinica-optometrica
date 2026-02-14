@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useRouter, usePathname } from 'next/navigation'
 import AdminSidebar from '@/components/AdminSidebar'
 import OptopadLogo from '@/components/OptopadLogo'
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 
 export default function AdminLayout({
   children,
@@ -29,7 +30,7 @@ export default function AdminLayout({
     }
     checkUser()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
       setUser(session?.user ?? null)
       if (session?.user && pathname === '/admin') {
         router.push('/admin/pacientes')
