@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
@@ -21,10 +22,28 @@ interface TestPaso {
   ruta_archivo: string
   url_publica: string
   descripcion?: string
-  valores_correctos?: string[] // Array de valores correctos (solo para agudeza_visual)
+  valores_correctos?: string[] // Array: agudeza_visual varios; optopad_color uno (Arriba/Abajo/Izquierda/Derecha)
+}
+
+const FILAS_OPTOPAD_COLOR = ['P', 'D', 'T'] as const
+const PASOS_POR_FILA = 10
+const OPCIONES_DIRECCION = ['arriba', 'abajo', 'izquierda', 'derecha'] as const
+const TESTS_PENDIENTES: TipoTest[] = ['rejilla_amsler', 'agudeza_visual', 'optopad_csf']
+
+function ordenFromFilaYPaso(fila: string, pasoNum: number): number {
+  const idx = FILAS_OPTOPAD_COLOR.indexOf(fila as 'P' | 'D' | 'T')
+  return idx >= 0 ? idx * PASOS_POR_FILA + pasoNum : pasoNum
+}
+function filaYPasoFromOrden(orden: number): { fila: string; pasoNum: number } {
+  const cero = orden - 1
+  const fila = FILAS_OPTOPAD_COLOR[Math.floor(cero / PASOS_POR_FILA)] ?? 'P'
+  const pasoNum = (cero % PASOS_POR_FILA) + 1
+  return { fila, pasoNum }
 }
 
 export default function TestsPage() {
+  const [ipads, setIpads] = useState<any[]>([])
+  const [ipadSeleccionado, setIpadSeleccionado] = useState<string | null>(null)
   const [testSeleccionado, setTestSeleccionado] = useState<TipoTest | ''>('')
   const [testConfig, setTestConfig] = useState<any>(null)
   const [pasos, setPasos] = useState<TestPaso[]>([])
@@ -36,16 +55,32 @@ export default function TestsPage() {
   const [subiendo, setSubiendo] = useState(false)
 
   useEffect(() => {
+    async function load() {
+      const { data } = await supabase.from('ipads').select('*').order('nombre')
+      const list = data || []
+      setIpads(list)
+      if (list.length > 0 && !ipadSeleccionado) {
+        setIpadSeleccionado(list[0].id)
+      }
+    }
+    load()
+  }, [])
+
+  useEffect(() => {
     if (testSeleccionado) {
       cargarConfiguracionTest()
+    } else {
+      setTestConfig(null)
+      setPasos([])
     }
-  }, [testSeleccionado])
+  }, [testSeleccionado, ipadSeleccionado])
 
   async function cargarConfiguracionTest() {
-    // Cargar configuración del test
+    if (!ipadSeleccionado) return
     const { data: configData, error: configError } = await supabase
       .from('test_configs')
       .select('*')
+      .eq('ipad_id', ipadSeleccionado)
       .eq('tipo_test', testSeleccionado)
       .single()
 
@@ -94,13 +129,18 @@ export default function TestsPage() {
   }
 
   async function crearConfiguracionTest() {
+    if (!ipadSeleccionado) {
+      alert('Debe seleccionar un iPad para crear la configuración del test.')
+      return
+    }
     const tipoTest = tiposTest.find(t => t.id === testSeleccionado)
     const { data, error } = await supabase
       .from('test_configs')
       .insert([{
         tipo_test: testSeleccionado,
         nombre: tipoTest?.nombre || testSeleccionado,
-        descripcion: `Configuración para ${tipoTest?.nombre}`
+        descripcion: `Configuración para ${tipoTest?.nombre}`,
+        ipad_id: ipadSeleccionado
       }])
       .select()
       .single()
@@ -108,10 +148,11 @@ export default function TestsPage() {
     if (error) {
       console.error('Error creando configuración:', error)
       alert('Error al crear la configuración del test')
-      return
+      return undefined
     }
 
     setTestConfig(data)
+    return data
   }
 
   async function subirImagenPaso(e: React.FormEvent) {
@@ -130,8 +171,6 @@ export default function TestsPage() {
           return
         }
       }
-
-    // Si es nuevo paso, requiere imagen
     if (!pasoEditando && !archivo) {
       alert('Por favor, seleccione una imagen')
       return
@@ -141,11 +180,10 @@ export default function TestsPage() {
 
     try {
       const orden = pasoEditando ? pasoEditando.orden : pasos.length + 1
-      let datosPaso: any = {
+      const datosPaso: any = {
         descripcion: descripcionPaso || null
       }
 
-      // Si hay archivo nuevo, subirlo
       if (archivo) {
         const timestamp = Date.now()
         const extension = archivo.name.split('.').pop()
@@ -189,7 +227,6 @@ export default function TestsPage() {
         }
         datosPaso.valores_correctos = valoresFiltrados
       }
-
       // Guardar o actualizar paso
       if (pasoEditando && pasoEditando.id) {
         // Actualizar paso existente
@@ -200,13 +237,11 @@ export default function TestsPage() {
 
         if (updateError) throw updateError
       } else {
-        // Crear nuevo paso (requiere imagen)
         if (!archivo) {
           alert('Por favor, seleccione una imagen para el nuevo paso')
           setSubiendo(false)
           return
         }
-        
         const { error: insertError } = await supabase
           .from('test_pasos')
           .insert([{
@@ -244,10 +279,9 @@ export default function TestsPage() {
     }
   }
 
-  async function eliminarPaso(pasoId: string, rutaArchivo: string) {
+  async function eliminarPaso(pasoId: string, rutaArchivo?: string | null) {
     if (!confirm('¿Seguro que desea eliminar este paso?')) return
 
-    // Eliminar de la base de datos
     const { error: dbError } = await supabase
       .from('test_pasos')
       .delete()
@@ -257,16 +291,56 @@ export default function TestsPage() {
       console.error('Error eliminando paso:', dbError)
     }
 
-    // Eliminar archivo del storage
-    const { error: storageError } = await supabase.storage
-      .from('tests')
-      .remove([rutaArchivo])
-
-    if (storageError) {
-      console.error('Error eliminando archivo:', storageError)
+    if (rutaArchivo) {
+      const { error: storageError } = await supabase.storage
+        .from('tests')
+        .remove([rutaArchivo])
+      if (storageError) console.error('Error eliminando archivo:', storageError)
     }
 
     cargarConfiguracionTest()
+  }
+
+  async function guardarRespuestaOptopadColor(fila: string, pasoNum: number, valor: string) {
+    if (!ipadSeleccionado) return
+    let config = testConfig
+    if (!config) {
+      config = await crearConfiguracionTest()
+      if (!config) return
+    }
+    const orden = ordenFromFilaYPaso(fila, pasoNum)
+    const paso = pasos.find(p => p.orden === orden)
+    const valorTrim = valor.trim()
+
+    if (!valorTrim) {
+      if (paso?.id) {
+        await supabase.from('test_pasos').delete().eq('id', paso.id)
+        cargarConfiguracionTest()
+      }
+      return
+    }
+
+    if (!OPCIONES_DIRECCION.includes(valorTrim as typeof OPCIONES_DIRECCION[number])) return
+
+    if (paso?.id) {
+      const { error } = await supabase
+        .from('test_pasos')
+        .update({ valores_correctos: [valorTrim] })
+        .eq('id', paso.id)
+      if (!error) cargarConfiguracionTest()
+      return
+    }
+
+    const { error } = await supabase.from('test_pasos').insert([{
+      test_config_id: config.id,
+      orden,
+      nombre_archivo: null,
+      ruta_archivo: null,
+      url_publica: null,
+      descripcion: null,
+      valores_correctos: [valorTrim]
+    }])
+    if (!error) cargarConfiguracionTest()
   }
 
   function editarPaso(paso: TestPaso) {
@@ -340,7 +414,40 @@ export default function TestsPage() {
 
   return (
     <div className="p-6">
-      {/* Selector de Test */}
+      {/* Selector de iPad */}
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 mb-6">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+          </svg>
+          iPad
+        </h2>
+        <p className="text-gray-600 mb-4">Todo test debe estar configurado para un iPad. Seleccione el dispositivo.</p>
+        <div className="flex flex-wrap gap-3">
+          {ipads.map(ipad => (
+            <button
+              key={ipad.id}
+              onClick={() => setIpadSeleccionado(ipad.id)}
+              className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition ${
+                ipadSeleccionado === ipad.id
+                  ? 'border-[#356375] bg-[#356375]/10 text-[#356375]'
+                  : 'border-gray-200 hover:border-gray-300 text-gray-700'
+              }`}
+            >
+              {ipad.nombre} — {ipad.marca} {ipad.modelo}
+            </button>
+          ))}
+        </div>
+        {ipads.length === 0 && (
+          <p className="text-amber-700 text-sm mt-2">
+            No hay iPads registrados. <Link href="/admin/ipads" className="underline font-medium text-[#356375] hover:text-[#2d5566]">Añadir iPads</Link> para poder configurar tests.
+          </p>
+        )}
+      </div>
+
+      {/* Selector de Test y pasos: solo cuando hay iPad seleccionado */}
+      {ipadSeleccionado && (
+        <>
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 mb-6">
         <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -348,7 +455,7 @@ export default function TestsPage() {
           </svg>
           Configuración de Tests
         </h2>
-        <p className="text-gray-600 mb-4">Seleccione un test para configurar sus pasos (imágenes) y orden</p>
+        <p className="text-gray-600 mb-4">Seleccione un test para configurar sus pasos (imágenes) y orden para este iPad</p>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {tiposTest.map(tipo => (
@@ -377,22 +484,75 @@ export default function TestsPage() {
                 {tiposTest.find(t => t.id === testSeleccionado)?.nombre}
               </h3>
               <p className="text-white/80 text-sm mt-1">
-                Configure las imágenes y su orden para este test
+                {testSeleccionado === 'optopad_color'
+                  ? 'Tres filas (P, D, T). Cada fila tiene 10 pasos con opción correcta: Arriba, Abajo, Izquierda, Derecha.'
+                  : 'Configure las imágenes y su orden para este test'}
               </p>
             </div>
-            <button
-              onClick={nuevoPaso}
-              className="bg-white text-[#356375] px-4 py-2 rounded-lg font-semibold hover:bg-gray-100 transition flex items-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Agregar Paso
-            </button>
+            {testSeleccionado !== 'optopad_color' && !TESTS_PENDIENTES.includes(testSeleccionado as TipoTest) && (
+              <button
+                onClick={nuevoPaso}
+                className="bg-white text-[#356375] px-4 py-2 rounded-lg font-semibold hover:bg-gray-100 transition flex items-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Agregar Paso
+              </button>
+            )}
           </div>
 
           <div className="p-6">
-            {pasos.length === 0 ? (
+            {TESTS_PENDIENTES.includes(testSeleccionado as TipoTest) ? (
+              <div className="rounded-xl border-2 border-amber-200 bg-amber-50 py-12 px-6 text-center">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-amber-100 text-amber-600 mb-4">
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <h4 className="text-lg font-semibold text-amber-900 mb-2">Funcionalidad pendiente de implementar</h4>
+                <p className="text-amber-800 text-sm max-w-md mx-auto">
+                  La configuración para el test <strong>{tiposTest.find(t => t.id === testSeleccionado)?.nombre}</strong> estará disponible en una próxima actualización.
+                </p>
+              </div>
+            ) : testSeleccionado === 'optopad_color' ? (
+              <div className="space-y-8">
+                {FILAS_OPTOPAD_COLOR.map(fila => (
+                  <div key={fila}>
+                    <h4 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+                      <span className="bg-[#356375] text-white w-8 h-8 rounded flex items-center justify-center">{fila}</span>
+                      Fila {fila}
+                    </h4>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-10 gap-3">
+                      {Array.from({ length: PASOS_POR_FILA }, (_, i) => i + 1).map(pasoNum => {
+                        const orden = ordenFromFilaYPaso(fila, pasoNum)
+                        const paso = pasos.find(p => p.orden === orden)
+                        const respuesta = paso?.valores_correctos?.[0] ?? ''
+                        return (
+                          <div
+                            key={`${fila}-${pasoNum}`}
+                            className="border border-gray-200 rounded-lg p-2 bg-white flex flex-col gap-1"
+                          >
+                            <span className="text-xs text-gray-500 font-medium">{fila}-{pasoNum}</span>
+                            <select
+                              value={respuesta}
+                              onChange={e => guardarRespuestaOptopadColor(fila, pasoNum, e.target.value)}
+                              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 text-gray-900 focus:ring-2 focus:ring-[#356375] focus:border-[#356375] outline-none"
+                            >
+                              <option value="">—</option>
+                              <option value="arriba">⬆️ Arriba</option>
+                              <option value="abajo">⬇️ Abajo</option>
+                              <option value="izquierda">⬅️ Izquierda</option>
+                              <option value="derecha">➡️ Derecha</option>
+                            </select>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : pasos.length === 0 ? (
               <div className="text-center py-12">
                 <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -539,9 +699,11 @@ export default function TestsPage() {
           </div>
         </div>
       )}
+        </>
+      )}
 
-      {/* Modal de Subida/Edición de Paso */}
-      {mostrarFormularioPaso && testSeleccionado && (
+      {/* Modal de Subida/Edición de Paso (no se usa en Optopad Color: el selector va en cada celda) */}
+      {mostrarFormularioPaso && testSeleccionado && testSeleccionado !== 'optopad_color' && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full">
             <div className="bg-[#356375] px-6 py-4 flex justify-between items-center">
@@ -712,13 +874,13 @@ export default function TestsPage() {
                 <button
                   type="submit"
                   disabled={
-                    subiendo || 
-                    (!pasoEditando && !archivo) || 
+                    subiendo ||
+                    (!pasoEditando && !archivo) ||
                     (testSeleccionado === 'agudeza_visual' && valoresCorrectos.filter(v => v.trim() !== '' && ['arriba', 'abajo', 'izquierda', 'derecha'].includes(v)).length < 3)
                   }
                   className="flex-1 bg-[#356375] text-white font-semibold py-3 rounded-lg hover:bg-[#2d5566] transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {subiendo ? 'Guardando...' : (pasoEditando ? 'Actualizar Paso' : 'Agregar Paso')}
+                  {subiendo ? 'Guardando...' : (pasoEditando ? 'Actualizar Paso' : 'Guardar')}
                 </button>
               </div>
             </form>
