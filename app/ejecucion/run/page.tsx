@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
@@ -16,7 +16,7 @@ interface PasoConfig {
   valores_correctos?: string[]
 }
 
-export default function RunTestPage() {
+function RunTestContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const pacienteId = searchParams.get('paciente')
@@ -301,5 +301,22 @@ export default function RunTestPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function RunTestPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-[40vh] flex items-center justify-center bg-gray-50">
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-[#356375] mb-4" />
+            <p className="text-gray-600 font-medium">Cargando test...</p>
+          </div>
+        </div>
+      }
+    >
+      <RunTestContent />
+    </Suspense>
   )
 }
