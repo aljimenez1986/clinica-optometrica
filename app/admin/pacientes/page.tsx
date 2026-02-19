@@ -41,7 +41,7 @@ export default function PacientesPage() {
         .from('test_resultados')
         .select('paciente_id')
       if (error) return
-      const ids = new Set((data || []).map((r: { paciente_id: string }) => r.paciente_id))
+      const ids = new Set<string>((data || []).map((r: { paciente_id: string }) => r.paciente_id))
       setPacientesConResultados(ids)
     }
     fetchPacientesConResultados()
