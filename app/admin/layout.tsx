@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useRouter, usePathname } from 'next/navigation'
 import AdminSidebar from '@/components/AdminSidebar'
@@ -23,9 +24,9 @@ export default function AdminLayout({
       setUser(session?.user ?? null)
       setLoading(false)
       
-      // Si está logueado y está en /admin, redirigir a pacientes
+      // Si está logueado y está en /admin, redirigir al dashboard
       if (session?.user && pathname === '/admin') {
-        router.push('/admin/pacientes')
+        router.push('/admin/dashboard')
       }
     }
     checkUser()
@@ -33,7 +34,7 @@ export default function AdminLayout({
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
       setUser(session?.user ?? null)
       if (session?.user && pathname === '/admin') {
-        router.push('/admin/pacientes')
+        router.push('/admin/dashboard')
       }
     })
 
@@ -75,6 +76,12 @@ export default function AdminLayout({
               <h1 className="text-xl font-bold text-gray-900">Panel de Administración</h1>
             </div>
             <div className="flex items-center gap-4">
+              <Link
+                href="/test"
+                className="text-[#356375] font-medium hover:underline"
+              >
+                Ejecución de tests
+              </Link>
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-medium text-gray-900">{user?.email}</p>
                 <p className="text-xs text-gray-500">Usuario activo</p>

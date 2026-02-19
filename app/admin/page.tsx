@@ -25,7 +25,7 @@ export default function AdminLogin() {
       setError(loginError.message)
       setLoading(false)
     } else {
-      router.push('/admin/pacientes')
+      router.push('/admin/dashboard')
     }
   }
 
