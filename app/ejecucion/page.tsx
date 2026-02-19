@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
@@ -15,7 +15,7 @@ const tiposTest = [
   { id: 'optopad_csf' as TipoTest, nombre: 'Optopad CSF', icono: '📊' }
 ]
 
-export default function EjecucionPage() {
+function EjecucionContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const pacienteFromUrl = searchParams.get('paciente')
@@ -191,5 +191,22 @@ export default function EjecucionPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function EjecucionPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-6 flex items-center justify-center min-h-[40vh]">
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-[#356375] mb-4" />
+            <p className="text-gray-600 font-medium">Cargando...</p>
+          </div>
+        </div>
+      }
+    >
+      <EjecucionContent />
+    </Suspense>
   )
 }
