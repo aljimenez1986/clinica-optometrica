@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
@@ -14,7 +15,12 @@ const tiposTest = [
   { id: 'optopad_csf' as TipoTest, nombre: 'Optopad CSF', icono: '📊' }
 ]
 
-export default function EjecucionPage() {
+function EjecucionContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const pacienteFromUrl = searchParams.get('paciente')
+  const aplicadoPacienteUrl = useRef(false)
+
   const [pacientes, setPacientes] = useState<any[]>([])
   const [ipads, setIpads] = useState<any[]>([])
   const [pacienteId, setPacienteId] = useState<string>('')
@@ -27,11 +33,17 @@ export default function EjecucionPage() {
         supabase.from('pacientes').select('*').order('nombre').order('created_at', { ascending: false }),
         supabase.from('ipads').select('*').order('nombre')
       ])
-      setPacientes(pacRes.data ?? [])
-      setIpads(ipadRes.data ?? [])
+      const listaPacientes = pacRes.data ?? []
+      const listaIpads = ipadRes.data ?? []
+      setPacientes(listaPacientes)
+      setIpads(listaIpads)
+      if (pacienteFromUrl && !aplicadoPacienteUrl.current && listaPacientes.some((p: any) => p.id === pacienteFromUrl)) {
+        setPacienteId(pacienteFromUrl)
+        aplicadoPacienteUrl.current = true
+      }
     }
     load()
-  }, [])
+  }, [pacienteFromUrl])
 
   const paciente = pacientes.find(p => p.id === pacienteId)
   const ipad = ipads.find(i => i.id === ipadId)
@@ -158,6 +170,18 @@ export default function EjecucionPage() {
           <button
             type="button"
             disabled={!puedeIniciar}
+            onClick={() => {
+              if (testSeleccionado === 'optopad_color') {
+                const params = new URLSearchParams({
+                  paciente: pacienteId,
+                  ipad: ipadId,
+                  test: testSeleccionado
+                })
+                router.push(`/test/run?${params.toString()}`)
+              } else {
+                alert('De momento solo está disponible el test Optopad Color.')
+              }
+            }}
             className="bg-[#356375] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#2d5566] transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Iniciar test
@@ -168,5 +192,13 @@ export default function EjecucionPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function EjecucionPage() {
+  return (
+    <Suspense fallback={<div className="p-6 flex items-center justify-center min-h-[40vh]"><div className="text-center"><div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-[#356375] mb-4" /><p className="text-gray-600 font-medium">Cargando...</p></div></div>}>
+      <EjecucionContent />
+    </Suspense>
   )
 }

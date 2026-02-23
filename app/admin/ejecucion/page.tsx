@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 export default function AdminEjecucionRedirect() {
   const router = useRouter()
   useEffect(() => {
-    router.replace('/ejecucion')
+    router.replace('/test')
   }, [router])
   return (
     <div className="min-h-[200px] flex items-center justify-center">

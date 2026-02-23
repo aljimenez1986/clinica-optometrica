@@ -274,7 +274,7 @@ function ResultadosContent() {
         <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-8 text-center">
           <p className="text-gray-500 font-medium">Este paciente no tiene resultados de tests registrados.</p>
           <Link
-            href={`/ejecucion?paciente=${encodeURIComponent(paciente.id)}`}
+            href={`/test?paciente=${encodeURIComponent(paciente.id)}`}
             className="inline-block mt-4 text-[#356375] font-medium hover:underline"
           >
             Ir a ejecución de tests
@@ -388,6 +388,7 @@ function ResultadosContent() {
                         {tieneOptopad && typeof d.resultado_p === 'number' ? (
                           <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium bg-[#46788c]/20 text-[#356375]">
                             {d.resultado_p}
+                            {d.resultado_p_valor != null && <span className="ml-1 text-gray-600">({Number(d.resultado_p_valor).toFixed(4)})</span>}
                           </span>
                         ) : (
                           '—'
@@ -397,6 +398,7 @@ function ResultadosContent() {
                         {tieneOptopad && typeof d.resultado_d === 'number' ? (
                           <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium bg-[#46788c]/20 text-[#356375]">
                             {d.resultado_d}
+                            {d.resultado_d_valor != null && <span className="ml-1 text-gray-600">({Number(d.resultado_d_valor).toFixed(4)})</span>}
                           </span>
                         ) : (
                           '—'
@@ -406,6 +408,7 @@ function ResultadosContent() {
                         {tieneOptopad && typeof d.resultado_t === 'number' ? (
                           <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium bg-[#46788c]/20 text-[#356375]">
                             {d.resultado_t}
+                            {d.resultado_t_valor != null && <span className="ml-1 text-gray-600">({Number(d.resultado_t_valor).toFixed(4)})</span>}
                           </span>
                         ) : (
                           '—'

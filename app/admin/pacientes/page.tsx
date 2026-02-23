@@ -395,7 +395,7 @@ export default function PacientesPage() {
                             </Link>
                           )}
                         <Link
-                          href={`/ejecucion?paciente=${encodeURIComponent(p.id)}`}
+                          href={`/test?paciente=${encodeURIComponent(p.id)}`}
                           title="Ejecutar test"
                           className="p-2 rounded-lg text-[#356375] hover:bg-[#356375]/10 transition"
                         >

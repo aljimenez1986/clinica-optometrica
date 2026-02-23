@@ -47,7 +47,7 @@ export default function EjecucionLayout({ children }: { children: React.ReactNod
       <header className="bg-white border-b border-gray-200 shadow-sm">
         <div className="px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-4">
-            <Link href="/ejecucion" className="flex items-center gap-2">
+            <Link href="/test" className="flex items-center gap-2">
               <OptopadLogo className="h-9" />
             </Link>
             <h1 className="text-xl font-bold text-gray-900">Ejecución de tests</h1>

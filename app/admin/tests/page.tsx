@@ -3,8 +3,13 @@
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 export const dynamic = 'force-dynamic'
+
+const COLORS_BARRAS = ['#356375', '#46788c', '#5a9aa8']
+
+const PASOS_POR_FILA = 10
 
 const NOMBRES_TIPO_TEST: Record<string, string> = {
   rejilla_amsler: 'Rejilla de Amsler',
@@ -42,6 +47,28 @@ type Row = {
   _paciente: { id: string; id_paciente?: string; nombre?: string; fecha_nacimiento?: string } | null
 }
 
+interface PasoConfig { id: string; orden: number; valor_decimal?: string | number | null }
+
+function calcularResultadoValor(pasosList: PasoConfig[], filaIdx: number, ultimoPaso: number): number | null {
+  if (ultimoPaso < 0) return null
+  const baseOrden = filaIdx * PASOS_POR_FILA
+  const getVal = (k: number): number | null => {
+    const paso = pasosList.find(p => p.orden === baseOrden + k)
+    const v = paso?.valor_decimal
+    if (v == null || v === '') return null
+    const n = typeof v === 'number' ? v : parseFloat(String(v))
+    return isNaN(n) ? null : n
+  }
+  const P1 = getVal(1), P2 = getVal(2), P8 = getVal(8), P9 = getVal(9)
+  if (ultimoPaso === 0) return (P1 != null && P2 != null && P2 !== 0) ? (P1 * P1) / P2 : null
+  if (ultimoPaso >= 8 && ultimoPaso <= 9) return (P9 != null && P8 != null && P8 !== 0) ? (P9 * P9) / P8 : null
+  if (ultimoPaso >= 1 && ultimoPaso <= 7) {
+    const Pk = getVal(ultimoPaso + 1), Pk1 = getVal(ultimoPaso + 2)
+    return (Pk != null && Pk1 != null) ? (Pk + Pk1) / 2 : null
+  }
+  return null
+}
+
 export default function TestsPage() {
   const [resultados, setResultados] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
@@ -49,6 +76,9 @@ export default function TestsPage() {
   const [filtroTipo, setFiltroTipo] = useState('')
   const [ordenColumna, setOrdenColumna] = useState<OrdenColumna>('fecha')
   const [ordenAsc, setOrdenAsc] = useState(false)
+  const [graficaRow, setGraficaRow] = useState<Row | null>(null)
+  const [graficaPasos, setGraficaPasos] = useState<PasoConfig[]>([])
+  const [recalculando, setRecalculando] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -112,6 +142,71 @@ export default function TestsPage() {
     }
     load()
   }, [])
+
+  useEffect(() => {
+    if (!graficaRow || (graficaRow.test_configs?.tipo_test ?? '') !== 'optopad_color') {
+      setGraficaPasos([])
+      return
+    }
+    const cfgId = graficaRow.test_config_id
+    if (!cfgId) return
+    ;(async () => {
+      const { data } = await supabase.from('test_pasos').select('id, orden, valor_decimal').eq('test_config_id', cfgId).order('orden')
+      setGraficaPasos((data ?? []) as PasoConfig[])
+    })()
+  }, [graficaRow])
+
+  async function recalcularValoresOptopad() {
+    setRecalculando(true)
+    try {
+      const optopadResults = resultados.filter(r => (r.test_configs?.tipo_test ?? '') === 'optopad_color')
+      const configIds = [...new Set(optopadResults.map(r => r.test_config_id).filter(Boolean))]
+      const pasosByConfig: Record<string, PasoConfig[]> = {}
+      for (const cid of configIds) {
+        const { data } = await supabase.from('test_pasos').select('id, orden, valor_decimal').eq('test_config_id', cid).order('orden')
+        pasosByConfig[cid] = (data ?? []) as PasoConfig[]
+      }
+      for (const r of optopadResults) {
+        const pasosList = pasosByConfig[r.test_config_id] ?? []
+        const d = datos(r)
+        const parsePos = (v: unknown): number => {
+          if (typeof v === 'number' && !isNaN(v)) return v
+          if (typeof v === 'string' && /^-?\d+$/.test(v)) return parseInt(v, 10)
+          return -1
+        }
+        const rP = parsePos(d.resultado_p)
+        const rD = parsePos(d.resultado_d)
+        const rT = parsePos(d.resultado_t)
+        const ultimoP = rP >= 1 && rP <= 10 ? rP - 1 : (rP === 0 ? 0 : -1)
+        const ultimoD = rD >= 1 && rD <= 10 ? rD - 1 : (rD === 0 ? 0 : -1)
+        const ultimoT = rT >= 1 && rT <= 10 ? rT - 1 : (rT === 0 ? 0 : -1)
+        const vP = ultimoP >= 0 ? calcularResultadoValor(pasosList, 0, ultimoP) : null
+        const vD = ultimoD >= 0 ? calcularResultadoValor(pasosList, 1, ultimoD) : null
+        const vT = ultimoT >= 0 ? calcularResultadoValor(pasosList, 2, ultimoT) : null
+        const nuevosDatos = { ...d, resultado_p_valor: vP, resultado_d_valor: vD, resultado_t_valor: vT }
+        await supabase.from('test_resultados').update({ datos_respuesta: nuevosDatos }).eq('id', r.id)
+      }
+      const resRes = await supabase.from('test_resultados').select('id, paciente_id, fecha_realizacion, datos_respuesta, test_config_id').order('fecha_realizacion', { ascending: false })
+      if (!resRes.error && resRes.data) {
+        const lista = resRes.data
+        const configIds = [...new Set(lista.map((x: any) => x.test_config_id).filter(Boolean))]
+        const [pacientesRes, configsRes] = await Promise.all([supabase.from('pacientes').select('id, id_paciente, nombre, fecha_nacimiento').in('id', [...new Set(lista.map((x: any) => x.paciente_id).filter(Boolean))]), supabase.from('test_configs').select('id, tipo_test, ipad_id').in('id', configIds)])
+        const pacientes = ((pacientesRes.data ?? []) as any[]).reduce((acc: Record<string, any>, p: any) => { acc[p.id] = p; return acc }, {})
+        const configs = ((configsRes.data ?? []) as any[]).reduce((acc: Record<string, any>, c: any) => { acc[c.id] = c; return acc }, {})
+        const ipadIds = [...new Set((configsRes.data ?? []).map((c: any) => c.ipad_id).filter(Boolean))]
+        const ipadsRes = ipadIds.length > 0 ? await supabase.from('ipads').select('id, nombre, marca, modelo').in('id', ipadIds) : { data: [] }
+        const ipads = ((ipadsRes.data ?? []) as any[]).reduce((acc: Record<string, any>, i: any) => { acc[i.id] = i; return acc }, {})
+        const rows: Row[] = lista.map((r: any) => ({ ...r, test_configs: configs[r.test_config_id] ?? null, _ipads: r.test_config_id && configs[r.test_config_id]?.ipad_id ? ipads[configs[r.test_config_id].ipad_id] ?? null : null, _paciente: pacientes[r.paciente_id] ?? null }))
+        setResultados(rows)
+      }
+      alert('Valores recalculados correctamente')
+    } catch (e) {
+      console.error(e)
+      alert('Error al recalcular')
+    } finally {
+      setRecalculando(false)
+    }
+  }
 
   const config = (r: Row) => r.test_configs ?? {}
   const ipad = (r: Row) => r._ipads ?? null
@@ -265,7 +360,7 @@ export default function TestsPage() {
             </select>
           </div>
           <Link
-            href="/admin/ejecucion"
+            href="/test"
             className="bg-[#356375] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#2d5566] transition-all shadow-md hover:shadow-lg whitespace-nowrap flex items-center justify-center gap-2 shrink-0"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -313,7 +408,13 @@ export default function TestsPage() {
                 Resultados
                 {tieneFiltros ? ` (${resultadosFiltradosOrdenados.length} de ${resultados.length})` : ` (${resultados.length})`}
               </h2>
-              <p className="text-white/90 text-sm">Haz clic en una columna para ordenar</p>
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={recalcularValoresOptopad} disabled={recalculando || resultados.filter(r => (r.test_configs?.tipo_test ?? '') === 'optopad_color').length === 0}
+                  className="text-white/95 text-sm font-medium px-3 py-1.5 rounded-lg border border-white/40 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed">
+                  {recalculando ? 'Recalculando...' : 'Recalcular Optopad'}
+                </button>
+                <p className="text-white/90 text-sm">Haz clic en una columna para ordenar</p>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse min-w-[800px]">
@@ -327,12 +428,13 @@ export default function TestsPage() {
                     <ThOrden col="p" label="P" className="text-center" />
                     <ThOrden col="d" label="D" className="text-center" />
                     <ThOrden col="t" label="T" className="text-center" />
+                    <th className="px-6 py-4 text-xs font-bold text-gray-700 uppercase tracking-wider text-center">Gráfica</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {resultadosFiltradosOrdenados.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
                         No hay resultados que coincidan con los filtros.
                       </td>
                     </tr>
@@ -381,6 +483,7 @@ export default function TestsPage() {
                             {tieneOptopad && typeof d.resultado_p === 'number' ? (
                               <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium bg-[#46788c]/20 text-[#356375]">
                                 {d.resultado_p}
+                                {d.resultado_p_valor != null && <span className="ml-1 text-gray-600">({Number(d.resultado_p_valor).toFixed(4)})</span>}
                               </span>
                             ) : (
                               '—'
@@ -390,6 +493,7 @@ export default function TestsPage() {
                             {tieneOptopad && typeof d.resultado_d === 'number' ? (
                               <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium bg-[#46788c]/20 text-[#356375]">
                                 {d.resultado_d}
+                                {d.resultado_d_valor != null && <span className="ml-1 text-gray-600">({Number(d.resultado_d_valor).toFixed(4)})</span>}
                               </span>
                             ) : (
                               '—'
@@ -399,7 +503,17 @@ export default function TestsPage() {
                             {tieneOptopad && typeof d.resultado_t === 'number' ? (
                               <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium bg-[#46788c]/20 text-[#356375]">
                                 {d.resultado_t}
+                                {d.resultado_t_valor != null && <span className="ml-1 text-gray-600">({Number(d.resultado_t_valor).toFixed(4)})</span>}
                               </span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {tieneOptopad ? (
+                              <button type="button" onClick={() => setGraficaRow(r)} className="text-[#356375] font-medium hover:underline text-sm">
+                                Ver gráfica
+                              </button>
                             ) : (
                               '—'
                             )}
@@ -413,6 +527,46 @@ export default function TestsPage() {
             </div>
           </div>
         </>
+      )}
+
+      {graficaRow && (
+        <div className="fixed inset-0 bg-gray-600/50 flex items-center justify-center p-4 z-50" onClick={() => setGraficaRow(null)}>
+          <div className="bg-white rounded-xl shadow-xl border border-gray-200 max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Gráfica P, D, T</h3>
+            {(() => {
+              const d = datos(graficaRow)
+              const vP = d.resultado_p_valor != null ? Number(d.resultado_p_valor) : null
+              const vD = d.resultado_d_valor != null ? Number(d.resultado_d_valor) : null
+              const vT = d.resultado_t_valor != null ? Number(d.resultado_t_valor) : null
+              const chartData = [
+                { name: 'P', valor: vP ?? 0, full: vP },
+                { name: 'D', valor: vD ?? 0, full: vD },
+                { name: 'T', valor: vT ?? 0, full: vT }
+              ]
+              return (
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip formatter={(val: number, _name: string, props: { payload?: { full?: number | null } }) => (props.payload?.full != null ? props.payload.full.toFixed(6) : '—')} />
+                      <Bar dataKey="valor">
+                        {chartData.map((_, i) => (
+                          <Cell key={i} fill={COLORS_BARRAS[i % COLORS_BARRAS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )
+            })()}
+            <p className="text-sm text-gray-500 mt-2">Paso: P={datos(graficaRow).resultado_p ?? '—'}, D={datos(graficaRow).resultado_d ?? '—'}, T={datos(graficaRow).resultado_t ?? '—'}</p>
+            <button type="button" onClick={() => setGraficaRow(null)} className="mt-4 w-full py-2 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50">
+              Cerrar
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

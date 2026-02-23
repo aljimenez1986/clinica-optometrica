@@ -22,7 +22,8 @@ interface TestPaso {
   ruta_archivo: string
   url_publica: string
   descripcion?: string
-  valores_correctos?: string[] // Array: agudeza_visual varios; optopad_color uno (Arriba/Abajo/Izquierda/Derecha)
+  valores_correctos?: string[]
+  valor_decimal?: string | number | null
 }
 
 const FILAS_OPTOPAD_COLOR = ['P', 'D', 'T'] as const
@@ -53,6 +54,8 @@ export default function TestsPage() {
   const [descripcionPaso, setDescripcionPaso] = useState('')
   const [valoresCorrectos, setValoresCorrectos] = useState<string[]>([''])
   const [subiendo, setSubiendo] = useState(false)
+  const [archivoTextoOptopad, setArchivoTextoOptopad] = useState('')
+  const [importandoOptopad, setImportandoOptopad] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -116,10 +119,8 @@ export default function TestsPage() {
               }
             }
           }
-          return {
-            ...paso,
-            valores_correctos: valoresCorrectos
-          }
+          const valorDecimal = paso.valor_decimal != null ? String(paso.valor_decimal) : ''
+          return { ...paso, valores_correctos: valoresCorrectos, valor_decimal: valorDecimal }
         })
         setPasos(pasosParseados)
       }
@@ -301,7 +302,18 @@ export default function TestsPage() {
     cargarConfiguracionTest()
   }
 
-  async function guardarRespuestaOptopadColor(fila: string, pasoNum: number, valor: string) {
+  function parseValorDecimal(val: string): string | null {
+    const trimmed = val.trim()
+    if (!trimmed) return null
+    const normalized = trimmed.replace(',', '.')
+    const num = parseFloat(normalized)
+    if (isNaN(num)) return null
+    const parts = normalized.split('.')
+    if ((parts[1]?.length ?? 0) > 20) return null
+    return normalized
+  }
+
+  async function guardarRespuestaOptopadColor(fila: string, pasoNum: number, valor: string, valorDecimal?: string) {
     if (!ipadSeleccionado) return
     let config = testConfig
     if (!config) {
@@ -311,6 +323,8 @@ export default function TestsPage() {
     const orden = ordenFromFilaYPaso(fila, pasoNum)
     const paso = pasos.find(p => p.orden === orden)
     const valorTrim = valor.trim()
+    const dec = valorDecimal != null ? parseValorDecimal(valorDecimal) : null
+    const valorDecimalToSave = dec ?? (paso?.valor_decimal ? parseValorDecimal(String(paso.valor_decimal)) : null)
 
     if (!valorTrim) {
       if (paso?.id) {
@@ -322,25 +336,82 @@ export default function TestsPage() {
 
     if (!OPCIONES_DIRECCION.includes(valorTrim as typeof OPCIONES_DIRECCION[number])) return
 
+    const payload: Record<string, unknown> = { valores_correctos: [valorTrim], valor_decimal: valorDecimalToSave }
+
     if (paso?.id) {
-      const { error } = await supabase
-        .from('test_pasos')
-        .update({ valores_correctos: [valorTrim] })
-        .eq('id', paso.id)
+      const { error } = await supabase.from('test_pasos').update(payload).eq('id', paso.id)
       if (!error) cargarConfiguracionTest()
       return
     }
 
     const { error } = await supabase.from('test_pasos').insert([{
-      test_config_id: config.id,
-      orden,
-      nombre_archivo: null,
-      ruta_archivo: null,
-      url_publica: null,
-      descripcion: null,
-      valores_correctos: [valorTrim]
+      test_config_id: config.id, orden, nombre_archivo: null, ruta_archivo: null, url_publica: null, descripcion: null, ...payload
     }])
     if (!error) cargarConfiguracionTest()
+  }
+
+  async function guardarValorDecimalOptopadColor(fila: string, pasoNum: number, valorDecimal: string) {
+    if (!ipadSeleccionado) return
+    const orden = ordenFromFilaYPaso(fila, pasoNum)
+    const paso = pasos.find(p => p.orden === orden)
+    if (!paso?.id) return
+    const dec = parseValorDecimal(valorDecimal)
+    const { error } = await supabase.from('test_pasos').update({ valor_decimal: dec }).eq('id', paso.id)
+    if (!error) cargarConfiguracionTest()
+  }
+
+  function parseArchivoDecimalesOptopadColor(texto: string): (string | null)[][] | null {
+    const lineas = texto.trim().split(/\r?\n/).filter(l => l.trim())
+    if (lineas.length !== 10) return null
+    const resultado: (string | null)[][] = []
+    for (let i = 0; i < 10; i++) {
+      const partes = lineas[i].split(',').map(p => p.trim())
+      if (partes.length !== 3) return null
+      resultado.push(partes.map(p => p ? parseValorDecimal(p) : null))
+    }
+    return resultado
+  }
+
+  async function importarDecimalesDesdeArchivoOptopadColor() {
+    const datos = parseArchivoDecimalesOptopadColor(archivoTextoOptopad)
+    if (!datos) {
+      alert('Formato inválido. 10 filas, 3 decimales por fila (P,D,T). Ejemplo:\n0.5,-0.5,2.5')
+      return
+    }
+    if (!ipadSeleccionado) return
+    let config = testConfig
+    if (!config) {
+      config = await crearConfiguracionTest()
+      if (!config) return
+    }
+    setImportandoOptopad(true)
+    try {
+      for (let pasoNum = 1; pasoNum <= PASOS_POR_FILA; pasoNum++) {
+        const idx = pasoNum - 1
+        for (let f = 0; f < FILAS_OPTOPAD_COLOR.length; f++) {
+          const fila = FILAS_OPTOPAD_COLOR[f]
+          const decimal = datos[idx][f]
+          const orden = ordenFromFilaYPaso(fila, pasoNum)
+          const paso = pasos.find(p => p.orden === orden)
+          if (paso?.id) {
+            await supabase.from('test_pasos').update({ valor_decimal: decimal }).eq('id', paso.id)
+          } else if (decimal != null) {
+            await supabase.from('test_pasos').insert([{
+              test_config_id: config.id, orden, nombre_archivo: null, ruta_archivo: null, url_publica: null, descripcion: null,
+              valores_correctos: ['arriba'], valor_decimal: decimal
+            }])
+          }
+        }
+      }
+      setArchivoTextoOptopad('')
+      await cargarConfiguracionTest()
+      alert('Valores decimales importados correctamente')
+    } catch (e) {
+      console.error(e)
+      alert('Error al importar')
+    } finally {
+      setImportandoOptopad(false)
+    }
   }
 
   function editarPaso(paso: TestPaso) {
@@ -485,7 +556,7 @@ export default function TestsPage() {
               </h3>
               <p className="text-white/80 text-sm mt-1">
                 {testSeleccionado === 'optopad_color'
-                  ? 'Tres filas (P, D, T). Cada fila tiene 10 pasos con opción correcta: Arriba, Abajo, Izquierda, Derecha.'
+                  ? 'Tres filas (P, D, T). 10 pasos por fila: dirección y valor decimal (hasta 20 decimales).'
                   : 'Configure las imágenes y su orden para este test'}
               </p>
             </div>
@@ -517,6 +588,28 @@ export default function TestsPage() {
               </div>
             ) : testSeleccionado === 'optopad_color' ? (
               <div className="space-y-8">
+                <div className="rounded-xl border-2 border-gray-200 bg-gray-50 p-4">
+                  <h4 className="text-sm font-bold text-gray-900 mb-2">Cargar valores decimales desde archivo</h4>
+                  <p className="text-xs text-gray-600 mb-2">10 filas, 3 decimales por fila (P,D,T). Ejemplo: 0.5,-0.5,2.5</p>
+                  <div className="flex gap-3">
+                    <textarea
+                      placeholder="0.5,-0.5,2.5&#10;0.306,-0.306,1.533&#10;..."
+                      value={archivoTextoOptopad}
+                      onChange={e => setArchivoTextoOptopad(e.target.value)}
+                      rows={3}
+                      className="flex-1 text-sm font-mono border border-gray-300 rounded-lg px-3 py-2"
+                    />
+                    <div className="flex flex-col gap-2">
+                      <input type="file" accept=".txt,text/plain" className="hidden" id="optopad-file"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) { const r = new FileReader(); r.onload = () => setArchivoTextoOptopad(String(r.result ?? '')); r.readAsText(f) }; e.target.value = '' }} />
+                      <label htmlFor="optopad-file" className="text-xs text-[#356375] cursor-pointer font-medium">Cargar archivo</label>
+                      <button type="button" onClick={importarDecimalesDesdeArchivoOptopadColor} disabled={importandoOptopad || !archivoTextoOptopad.trim()}
+                        className="bg-[#356375] text-white px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-50">
+                        {importandoOptopad ? 'Importando...' : 'Importar'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
                 {FILAS_OPTOPAD_COLOR.map(fila => (
                   <div key={fila}>
                     <h4 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
@@ -528,23 +621,23 @@ export default function TestsPage() {
                         const orden = ordenFromFilaYPaso(fila, pasoNum)
                         const paso = pasos.find(p => p.orden === orden)
                         const respuesta = paso?.valores_correctos?.[0] ?? ''
+                        const valorDecimal = paso?.valor_decimal != null ? String(paso.valor_decimal) : ''
                         return (
-                          <div
-                            key={`${fila}-${pasoNum}`}
-                            className="border border-gray-200 rounded-lg p-2 bg-white flex flex-col gap-1"
-                          >
+                          <div key={`${fila}-${pasoNum}`} className="border border-gray-200 rounded-lg p-2 bg-white flex flex-col gap-1">
                             <span className="text-xs text-gray-500 font-medium">{fila}-{pasoNum}</span>
-                            <select
-                              value={respuesta}
-                              onChange={e => guardarRespuestaOptopadColor(fila, pasoNum, e.target.value)}
-                              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 text-gray-900 focus:ring-2 focus:ring-[#356375] focus:border-[#356375] outline-none"
-                            >
+                            <select value={respuesta} onChange={e => guardarRespuestaOptopadColor(fila, pasoNum, e.target.value, valorDecimal)}
+                              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5">
                               <option value="">—</option>
                               <option value="arriba">⬆️ Arriba</option>
                               <option value="abajo">⬇️ Abajo</option>
                               <option value="izquierda">⬅️ Izquierda</option>
                               <option value="derecha">➡️ Derecha</option>
                             </select>
+                            <input type="text" inputMode="decimal" placeholder="Decimal" value={valorDecimal}
+                              disabled={!paso?.id}
+                              onChange={e => { const v = e.target.value; if (/^[\d.,]*$/.test(v) && (v.split('.')[1]?.length ?? 0) <= 20) setPasos(prev => prev.map(p => p.orden === orden ? { ...p, valor_decimal: v } : p)) }}
+                              onBlur={e => { if (paso?.id) guardarValorDecimalOptopadColor(fila, pasoNum, e.target.value) }}
+                              className="w-full text-sm border border-gray-300 rounded px-2 py-1 disabled:bg-gray-100" />
                           </div>
                         )
                       })}
