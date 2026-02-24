@@ -65,7 +65,7 @@ export default function IpadsPage() {
   async function abrirFormularioEdicion(ipad: any) {
     let clinicosIds: string[] = []
     const { data } = await supabase.from('ipad_clinico').select('usuario_id').eq('ipad_id', ipad.id)
-    if (data) clinicosIds = data.map(r => r.usuario_id)
+    if (data) clinicosIds = data.map((r: { usuario_id: string }) => r.usuario_id)
     setForm({
       nombre: ipad.nombre || '',
       marca: ipad.marca || '',
