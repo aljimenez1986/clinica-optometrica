@@ -29,12 +29,32 @@ function EjecucionContent() {
 
   useEffect(() => {
     async function load() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: perfil } = await supabase.from('app_usuario').select('id, role').eq('auth_user_id', user.id).single()
+      const admin = perfil?.role === 'administrador'
+
+      let ipadIds: Set<string> | null = null
+      if (!admin && perfil?.id) {
+        const { data: icData } = await supabase.from('ipad_clinico').select('ipad_id').eq('usuario_id', perfil.id)
+        ipadIds = new Set((icData ?? []).map((r: { ipad_id: string }) => r.ipad_id))
+      }
+
       const [pacRes, ipadRes] = await Promise.all([
         supabase.from('pacientes').select('*').order('nombre').order('created_at', { ascending: false }),
         supabase.from('ipads').select('*').order('nombre')
       ])
-      const listaPacientes = pacRes.data ?? []
-      const listaIpads = ipadRes.data ?? []
+      let listaPacientes = pacRes.data ?? []
+      let listaIpads = ipadRes.data ?? []
+
+      if (!admin && perfil?.id) {
+        listaPacientes = listaPacientes.filter((p: any) => p.registrado_por === perfil.id)
+      }
+      if (!admin && ipadIds) {
+        listaIpads = listaIpads.filter((i: any) => ipadIds!.has(i.id))
+      }
+
       setPacientes(listaPacientes)
       setIpads(listaIpads)
       if (pacienteFromUrl && !aplicadoPacienteUrl.current && listaPacientes.some((p: any) => p.id === pacienteFromUrl)) {

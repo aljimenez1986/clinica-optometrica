@@ -19,13 +19,14 @@ export default function AdminLogin() {
     setError('')
     setLoading(true)
 
-    const { error: loginError } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error: loginError } = await supabase.auth.signInWithPassword({ email, password })
     
     if (loginError) {
       setError(loginError.message)
       setLoading(false)
-    } else {
-      router.push('/admin/dashboard')
+    } else if (data?.user) {
+      const { data: perfil } = await supabase.from('app_usuario').select('role').eq('auth_user_id', data.user.id).single()
+      router.push(perfil?.role === 'administrador' ? '/admin/dashboard' : '/admin/pacientes')
     }
   }
 

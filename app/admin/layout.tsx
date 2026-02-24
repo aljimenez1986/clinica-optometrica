@@ -18,24 +18,44 @@ export default function AdminLayout({
   const router = useRouter()
   const pathname = usePathname()
 
+  const RUTAS_SOLO_ADMIN = ['/admin/dashboard', '/admin/usuarios', '/admin/ipads', '/admin/config']
+
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession()
-      setUser(session?.user ?? null)
-      setLoading(false)
-      
-      // Si está logueado y está en /admin, redirigir al dashboard
-      if (session?.user && pathname === '/admin') {
-        router.push('/admin/dashboard')
+      const u = session?.user ?? null
+      setUser(u)
+
+      if (!u) {
+        setLoading(false)
+        return
       }
+
+      // Redirigir /admin a dashboard o pacientes según rol
+      if (pathname === '/admin') {
+        const { data } = await supabase.from('app_usuario').select('role').eq('auth_user_id', u.id).single()
+        const esAdmin = data?.role === 'administrador'
+        router.push(esAdmin ? '/admin/dashboard' : '/admin/pacientes')
+        setLoading(false)
+        return
+      }
+
+      // Si es clínico e intenta acceder a ruta solo admin, redirigir
+      if (RUTAS_SOLO_ADMIN.includes(pathname)) {
+        const { data } = await supabase.from('app_usuario').select('role').eq('auth_user_id', u.id).single()
+        if (data?.role !== 'administrador') {
+          router.push('/admin/pacientes')
+          setLoading(false)
+          return
+        }
+      }
+
+      setLoading(false)
     }
     checkUser()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
       setUser(session?.user ?? null)
-      if (session?.user && pathname === '/admin') {
-        router.push('/admin/dashboard')
-      }
     })
 
     return () => subscription.unsubscribe()

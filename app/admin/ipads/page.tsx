@@ -9,7 +9,9 @@ type OrdenIpad = 'nombre' | 'marca' | 'modelo' | ''
 
 export default function IpadsPage() {
   const [ipads, setIpads] = useState<any[]>([])
-  const [form, setForm] = useState({ nombre: '', marca: '', modelo: '' })
+  const [clinicos, setClinicos] = useState<{ id: string; nombre?: string; email: string }[]>([])
+  const [esAdmin, setEsAdmin] = useState(false)
+  const [form, setForm] = useState({ nombre: '', marca: '', modelo: '', clinicosIds: [] as string[] })
   const [mostrarFormulario, setMostrarFormulario] = useState(false)
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [filtro, setFiltro] = useState('')
@@ -17,13 +19,22 @@ export default function IpadsPage() {
   const [ordenAsc, setOrdenAsc] = useState(true)
 
   useEffect(() => {
+    verificarRol()
     fetchIpads()
+    fetchClinicos()
   }, [])
+
+  async function verificarRol() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data } = await supabase.from('app_usuario').select('role').eq('auth_user_id', user.id).single()
+    setEsAdmin(data?.role === 'administrador')
+  }
 
   async function fetchIpads() {
     const { data, error } = await supabase
       .from('ipads')
-      .select('*')
+      .select('*, ipad_clinico(usuario_id)')
       .order('created_at', { ascending: false })
     if (error) {
       console.error('Error cargando iPads:', error.message)
@@ -32,17 +43,34 @@ export default function IpadsPage() {
     setIpads(data || [])
   }
 
+  async function fetchClinicos() {
+    const { data, error } = await supabase
+      .from('app_usuario')
+      .select('id, nombre, email')
+      .eq('role', 'clinico')
+      .order('email')
+    if (error) {
+      console.error('Error cargando clínicos:', error.message)
+      return
+    }
+    setClinicos(data || [])
+  }
+
   function resetearFormulario() {
-    setForm({ nombre: '', marca: '', modelo: '' })
+    setForm({ nombre: '', marca: '', modelo: '', clinicosIds: [] })
     setEditandoId(null)
     setMostrarFormulario(false)
   }
 
-  function abrirFormularioEdicion(ipad: any) {
+  async function abrirFormularioEdicion(ipad: any) {
+    let clinicosIds: string[] = []
+    const { data } = await supabase.from('ipad_clinico').select('usuario_id').eq('ipad_id', ipad.id)
+    if (data) clinicosIds = data.map(r => r.usuario_id)
     setForm({
       nombre: ipad.nombre || '',
       marca: ipad.marca || '',
-      modelo: ipad.modelo || ''
+      modelo: ipad.modelo || '',
+      clinicosIds
     })
     setEditandoId(ipad.id)
     setMostrarFormulario(true)
@@ -54,22 +82,31 @@ export default function IpadsPage() {
     if (!form.marca?.trim()) return alert('La marca es obligatoria')
     if (!form.modelo?.trim()) return alert('El modelo es obligatorio')
 
+    const { nombre, marca, modelo, clinicosIds } = form
+    const payload = { nombre, marca, modelo }
+
+    let ipadId: string
     if (editandoId) {
-      const { error } = await supabase
-        .from('ipads')
-        .update(form)
-        .eq('id', editandoId)
+      const { error } = await supabase.from('ipads').update(payload).eq('id', editandoId)
       if (error) {
         alert('Error al actualizar: ' + error.message)
         return
       }
+      ipadId = editandoId
     } else {
-      const { error } = await supabase.from('ipads').insert([form])
+      const { data, error } = await supabase.from('ipads').insert([payload]).select('id').single()
       if (error) {
         alert('Error al crear: ' + error.message)
         return
       }
+      ipadId = data.id
     }
+
+    await supabase.from('ipad_clinico').delete().eq('ipad_id', ipadId)
+    if (clinicosIds.length > 0) {
+      await supabase.from('ipad_clinico').insert(clinicosIds.map(usuario_id => ({ ipad_id: ipadId, usuario_id })))
+    }
+
     resetearFormulario()
     fetchIpads()
   }
@@ -139,8 +176,9 @@ export default function IpadsPage() {
               onChange={e => setFiltro(e.target.value)}
             />
           </div>
+          {esAdmin && (
           <button
-            onClick={() => { resetearFormulario(); setMostrarFormulario(true) }}
+            onClick={() => { resetearFormulario(); setForm(f => ({ ...f, clinicosIds: [] })); setMostrarFormulario(true) }}
             className="bg-[#356375] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#2d5566] transition-all shadow-md hover:shadow-lg whitespace-nowrap flex items-center justify-center gap-2 shrink-0"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -148,6 +186,7 @@ export default function IpadsPage() {
             </svg>
             Nuevo iPad
           </button>
+          )}
           {filtro.trim() && (
             <button
               type="button"
@@ -184,13 +223,14 @@ export default function IpadsPage() {
                 <ThSort col="nombre" label="Nombre" />
                 <ThSort col="marca" label="Marca" />
                 <ThSort col="modelo" label="Modelo" />
+                <th className="px-6 py-4 text-xs font-bold text-gray-700 uppercase tracking-wider">Clínicos asignados</th>
                 <th className="px-6 py-4 text-xs font-bold text-gray-700 uppercase tracking-wider text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {ipadsFiltradosOrdenados.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center">
+                  <td colSpan={5} className="px-6 py-12 text-center">
                     <div className="flex flex-col items-center justify-center">
                       <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -202,12 +242,21 @@ export default function IpadsPage() {
                   </td>
                 </tr>
               ) : (
-                ipadsFiltradosOrdenados.map((i, idx) => (
+                ipadsFiltradosOrdenados.map((i, idx) => {
+                  const asignados = (i.ipad_clinico || []).map((ic: any) => {
+                    const c = clinicos.find(x => x.id === ic.usuario_id)
+                    return c ? (c.nombre || c.email) : ic.usuario_id
+                  }).filter(Boolean)
+                  return (
                   <tr key={i.id} className={`hover:bg-[#46788c]/10 transition ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
                     <td className="px-6 py-4 font-medium text-gray-900">{i.nombre || '-'}</td>
                     <td className="px-6 py-4 text-gray-700">{i.marca || '-'}</td>
                     <td className="px-6 py-4 text-gray-700">{i.modelo || '-'}</td>
+                    <td className="px-6 py-4 text-gray-600 text-sm">
+                      {asignados.length > 0 ? asignados.join(', ') : '—'}
+                    </td>
                     <td className="px-6 py-4 text-right">
+                      {esAdmin && (
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
@@ -230,9 +279,11 @@ export default function IpadsPage() {
                           </svg>
                         </button>
                       </div>
+                      )}
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -288,6 +339,30 @@ export default function IpadsPage() {
                   onChange={e => setForm({ ...form, modelo: e.target.value })}
                   required
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Clínicos asignados</label>
+                <p className="text-xs text-gray-500 mb-2">Opcional. Seleccione los clínicos que pueden usar este iPad.</p>
+                <div className="border border-gray-300 rounded-lg p-3 max-h-40 overflow-y-auto bg-gray-50/50 space-y-2">
+                  {clinicos.length === 0 ? (
+                    <p className="text-sm text-gray-500">No hay clínicos registrados. Cree usuarios con rol Clínico en Usuarios.</p>
+                  ) : (
+                    clinicos.map(c => (
+                      <label key={c.id} className="flex items-center gap-2 cursor-pointer hover:bg-white/60 rounded px-2 py-1">
+                        <input
+                          type="checkbox"
+                          checked={form.clinicosIds.includes(c.id)}
+                          onChange={e => {
+                            if (e.target.checked) setForm(f => ({ ...f, clinicosIds: [...f.clinicosIds, c.id] }))
+                            else setForm(f => ({ ...f, clinicosIds: f.clinicosIds.filter(id => id !== c.id) }))
+                          }}
+                          className="rounded border-gray-300 text-[#356375] focus:ring-[#356375]"
+                        />
+                        <span className="text-gray-900">{c.nombre || c.email}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="submit" className="flex-1 bg-[#356375] text-white py-2.5 rounded-lg font-semibold hover:bg-[#2d5566] transition">

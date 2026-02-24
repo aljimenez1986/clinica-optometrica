@@ -10,6 +10,8 @@ type OrdenPaciente = 'id_paciente' | 'nombre' | 'genero' | 'fecha_nacimiento' | 
 
 export default function PacientesPage() {
   const [pacientes, setPacientes] = useState<any[]>([])
+  const [miUsuarioId, setMiUsuarioId] = useState<string | null>(null)
+  const [esAdmin, setEsAdmin] = useState(false)
   const [ordenColumna, setOrdenColumna] = useState<OrdenPaciente>('created_at')
   const [ordenAsc, setOrdenAsc] = useState(false)
   const [form, setForm] = useState({
@@ -32,6 +34,15 @@ export default function PacientesPage() {
   const [pacientesConResultados, setPacientesConResultados] = useState<Set<string>>(new Set())
 
   useEffect(() => {
+    const cargarUsuario = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data } = await supabase.from('app_usuario').select('id, role').eq('auth_user_id', user.id).single()
+        setMiUsuarioId(data?.id ?? null)
+        setEsAdmin(data?.role === 'administrador')
+      }
+    }
+    cargarUsuario()
     fetchPacientes()
   }, [])
 
@@ -148,7 +159,8 @@ export default function PacientesPage() {
         .eq('id', editandoId)
       error = updateError
     } else {
-      const { error: insertError } = await supabase.from('pacientes').insert([form])
+      const payload = { ...form, registrado_por: miUsuarioId }
+      const { error: insertError } = await supabase.from('pacientes').insert([payload])
       error = insertError
     }
     
@@ -184,7 +196,8 @@ export default function PacientesPage() {
     }
   }
 
-  const pacientesFiltrados = pacientes.filter(p => {
+  const pacientesVisibles = esAdmin ? pacientes : (miUsuarioId ? pacientes.filter(p => p.registrado_por === miUsuarioId) : [])
+  const pacientesFiltrados = pacientesVisibles.filter(p => {
     if (!filtro.trim()) return true
     const busqueda = filtro.toLowerCase()
     return (
@@ -288,7 +301,7 @@ export default function PacientesPage() {
         {filtro && (
           <div className="mt-4 pt-4 border-t border-gray-200">
             <p className="text-sm text-gray-600">
-              <span className="font-semibold text-gray-900">{pacientesFiltrados.length}</span> de <span className="font-semibold text-gray-900">{pacientes.length}</span> pacientes encontrados
+              <span className="font-semibold text-gray-900">{pacientesFiltrados.length}</span> de <span className="font-semibold text-gray-900">{pacientesVisibles.length}</span> pacientes encontrados
             </p>
           </div>
         )}
@@ -301,7 +314,7 @@ export default function PacientesPage() {
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
-            Registro de Pacientes {filtro ? `(${pacientesFiltrados.length} de ${pacientes.length})` : `(${pacientes.length})`}
+            Registro de Pacientes {filtro ? `(${pacientesFiltrados.length} de ${pacientesVisibles.length})` : `(${pacientesVisibles.length})`}
           </h2>
           <p className="text-white/90 text-sm">Haz clic en una columna para ordenar</p>
         </div>

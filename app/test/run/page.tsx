@@ -77,6 +77,28 @@ function RunTestContent() {
       return
     }
     async function load() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setError('Sesión no válida.')
+        setLoading(false)
+        return
+      }
+      const { data: perfil } = await supabase.from('app_usuario').select('id, role').eq('auth_user_id', user.id).single()
+      const esAdmin = perfil?.role === 'administrador'
+      if (!esAdmin && perfil?.id) {
+        const [pacRes, icRes] = await Promise.all([
+          supabase.from('pacientes').select('registrado_por').eq('id', pacienteId).single(),
+          supabase.from('ipad_clinico').select('ipad_id').eq('usuario_id', perfil.id).eq('ipad_id', ipadId).maybeSingle()
+        ])
+        const pacienteOk = pacRes.data?.registrado_por === perfil.id
+        const ipadOk = icRes.data != null
+        if (!pacienteOk || !ipadOk) {
+          setError('No tiene permiso para ejecutar tests con este paciente o iPad.')
+          setLoading(false)
+          return
+        }
+      }
+
       const { data: configData, error: configError } = await supabase
         .from('test_configs')
         .select('id')
