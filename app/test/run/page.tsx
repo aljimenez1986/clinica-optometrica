@@ -268,7 +268,7 @@ function RunTestContent() {
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
       </svg>
-      Volver a Ejecución
+      Volver a Realizar Test
     </Link>
   )
 
@@ -297,7 +297,7 @@ function RunTestContent() {
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
           <p className="text-amber-800 font-medium mb-4">{error}</p>
           <Link href={backHref} className="inline-block bg-[#356375] text-white px-6 py-2 rounded-lg font-medium hover:bg-[#2d5566] transition">
-            Volver a Ejecución
+            Volver a Realizar Test
           </Link>
         </div>
       </div>

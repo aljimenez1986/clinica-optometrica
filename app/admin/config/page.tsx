@@ -462,7 +462,7 @@ export default function TestsPage() {
           </svg>
           iPad
         </h2>
-        <p className="text-gray-600 mb-4">Todo test debe estar configurado para un iPad. Seleccione el dispositivo.</p>
+        <p className="text-gray-900 mb-4">Todo test debe estar configurado para un iPad. Seleccione el dispositivo.</p>
         <div className="flex flex-wrap gap-3">
           {ipads.map(ipad => (
             <button
@@ -495,7 +495,7 @@ export default function TestsPage() {
           </svg>
           Configuración
         </h2>
-        <p className="text-gray-600 mb-4">Seleccione un test para configurar sus pasos (imágenes) y orden para este iPad</p>
+        <p className="text-gray-900 mb-4">Seleccione un test para configurar sus pasos (imágenes) y orden para este iPad</p>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {tiposTest.map(tipo => (
@@ -559,14 +559,14 @@ export default function TestsPage() {
               <div className="space-y-8">
                 <div className="rounded-xl border-2 border-gray-200 bg-gray-50 p-4">
                   <h4 className="text-sm font-bold text-gray-900 mb-2">Cargar valores decimales desde archivo</h4>
-                  <p className="text-xs text-gray-600 mb-2">10 filas, 3 decimales por fila (P,D,T). Ejemplo: 0.5,-0.5,2.5</p>
+                  <p className="text-xs text-gray-900 mb-2">10 filas, 3 decimales por fila (P,D,T). Ejemplo: 0.5,-0.5,2.5</p>
                   <div className="flex gap-3">
                     <textarea
                       placeholder="0.5,-0.5,2.5&#10;0.306,-0.306,1.533&#10;..."
                       value={archivoTextoOptopad}
                       onChange={e => setArchivoTextoOptopad(e.target.value)}
                       rows={3}
-                      className="flex-1 text-sm font-mono border border-gray-300 rounded-lg px-3 py-2"
+                      className="flex-1 text-sm font-mono text-gray-900 border border-gray-300 rounded-lg px-3 py-2 bg-white"
                     />
                     <div className="flex flex-col gap-2">
                       <input type="file" accept=".txt,text/plain" className="hidden" id="optopad-file"
@@ -593,9 +593,9 @@ export default function TestsPage() {
                         const valorDecimal = paso?.valor_decimal != null ? String(paso.valor_decimal) : ''
                         return (
                           <div key={`${fila}-${pasoNum}`} className="border border-gray-200 rounded-lg p-2 bg-white flex flex-col gap-1">
-                            <span className="text-xs text-gray-500 font-medium">{fila}-{pasoNum}</span>
+                            <span className="text-xs text-gray-900 font-medium">{fila}-{pasoNum}</span>
                             <select value={respuesta} onChange={e => guardarRespuestaOptopadColor(fila, pasoNum, e.target.value, valorDecimal)}
-                              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5">
+                              className="w-full text-sm text-gray-900 bg-white border border-gray-300 rounded px-2 py-1.5">
                               <option value="">—</option>
                               <option value="arriba">⬆️ Arriba</option>
                               <option value="abajo">⬇️ Abajo</option>
@@ -606,7 +606,7 @@ export default function TestsPage() {
                               disabled={!paso?.id}
                               onChange={e => { const v = e.target.value; if (/^[\d.,]*$/.test(v) && (v.split('.')[1]?.length ?? 0) <= 20) setPasos(prev => prev.map(p => p.orden === orden ? { ...p, valor_decimal: v } : p)) }}
                               onBlur={e => { if (paso?.id) guardarValorDecimalOptopadColor(fila, pasoNum, e.target.value) }}
-                              className="w-full text-sm border border-gray-300 rounded px-2 py-1 disabled:bg-gray-100" />
+                              className="w-full text-sm text-gray-900 bg-white border border-gray-300 rounded px-2 py-1 disabled:bg-gray-100 placeholder-gray-600" />
                           </div>
                         )
                       })}
@@ -619,7 +619,7 @@ export default function TestsPage() {
                 <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                <p className="text-gray-500 font-medium mb-4">
+                <p className="text-gray-900 font-medium mb-4">
                   No hay pasos configurados para este test
                 </p>
                 <button
@@ -642,7 +642,7 @@ export default function TestsPage() {
                         {index > 0 && (
                           <button
                             onClick={() => reordenarPasos(paso.id!, paso.orden - 1)}
-                            className="text-gray-400 hover:text-[#356375]"
+                            className="text-gray-900 hover:text-[#356375]"
                             title="Mover arriba"
                           >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -653,7 +653,7 @@ export default function TestsPage() {
                         {index < pasos.length - 1 && (
                           <button
                             onClick={() => reordenarPasos(paso.id!, paso.orden + 1)}
-                            className="text-gray-400 hover:text-[#356375]"
+                            className="text-gray-900 hover:text-[#356375]"
                             title="Mover abajo"
                           >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -668,11 +668,11 @@ export default function TestsPage() {
                         {paso.url_publica ? (
                           (paso.nombre_archivo.toLowerCase().endsWith('.tif') || paso.nombre_archivo.toLowerCase().endsWith('.tiff')) ? (
                             <div className="w-full max-w-md h-48 bg-gray-100 rounded-lg flex flex-col items-center justify-center border-2 border-dashed border-gray-300 mb-2">
-                              <svg className="w-12 h-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className="w-12 h-12 text-gray-900 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                               </svg>
                               <p className="text-sm font-medium text-gray-700 mb-1">Archivo TIFF</p>
-                              <p className="text-xs text-gray-500 mb-2">Los navegadores no pueden mostrar TIFF</p>
+                              <p className="text-xs text-gray-900 mb-2">Los navegadores no pueden mostrar TIFF</p>
                               <a
                                 href={paso.url_publica}
                                 download={paso.nombre_archivo}
@@ -693,14 +693,14 @@ export default function TestsPage() {
                           )
                         ) : (
                           <div className="w-full max-w-md h-48 bg-gray-100 rounded-lg flex items-center justify-center">
-                            <p className="text-gray-400">Sin imagen</p>
+                            <p className="text-gray-900">Sin imagen</p>
                           </div>
                         )}
-                        <p className="text-sm text-gray-600 mt-2">
+                        <p className="text-sm text-gray-900 mt-2">
                           <span className="font-medium">Archivo:</span> {paso.nombre_archivo}
                         </p>
                         {paso.descripcion && (
-                          <p className="text-sm text-gray-600 mt-1">
+                          <p className="text-sm text-gray-900 mt-1">
                             <span className="font-medium">Descripción:</span> {paso.descripcion}
                           </p>
                         )}
@@ -824,24 +824,24 @@ export default function TestsPage() {
                         {archivo ? (
                           <>
                             <p className="text-sm font-medium text-gray-900">{archivo.name}</p>
-                            <p className="text-xs text-gray-500 mt-1">{(archivo.size / 1024 / 1024).toFixed(2)} MB</p>
+                            <p className="text-xs text-gray-900 mt-1">{(archivo.size / 1024 / 1024).toFixed(2)} MB</p>
                           </>
                         ) : (
                           pasoEditando && (
                             <>
                               <p className="text-sm font-medium text-gray-900">Imagen actual: {pasoEditando.nombre_archivo}</p>
-                              <p className="text-xs text-gray-500 mt-1">Seleccione una nueva imagen para reemplazar</p>
+                              <p className="text-xs text-gray-900 mt-1">Seleccione una nueva imagen para reemplazar</p>
                             </>
                           )
                         )}
                       </div>
                     ) : (
                       <div>
-                        <svg className="w-12 h-12 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-12 h-12 text-gray-900 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                         </svg>
-                        <p className="text-sm text-gray-600">Haga clic para seleccionar una imagen</p>
-                        <p className="text-xs text-gray-500 mt-1">PNG, JPG, JPEG, TIFF hasta 10MB</p>
+                        <p className="text-sm text-gray-900">Haga clic para seleccionar una imagen</p>
+                        <p className="text-xs text-gray-900 mt-1">PNG, JPG, JPEG, TIFF hasta 10MB</p>
                         <p className="text-xs text-amber-600 mt-1 font-medium">
                           ⚠️ Nota: Los navegadores no pueden mostrar TIFF directamente. 
                           Se recomienda convertir a PNG/JPG para visualización.
@@ -870,7 +870,7 @@ export default function TestsPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Valores Correctos <span className="text-red-500">*</span>
-                    <span className="text-xs text-gray-500 font-normal ml-2">(Entre 3 y 5 valores)</span>
+                    <span className="text-xs text-gray-900 font-normal ml-2">(Entre 3 y 5 valores)</span>
                   </label>
                   <div className="space-y-2">
                     {valoresCorrectos.map((valor, index) => (
@@ -914,7 +914,7 @@ export default function TestsPage() {
                       </button>
                     )}
                   </div>
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="text-xs text-gray-900 mt-2">
                     Configure entre 3 y 5 direcciones que se considerarán correctas para este paso. 
                     Si el paciente falla 2 pasos consecutivos, el test finalizará.
                   </p>

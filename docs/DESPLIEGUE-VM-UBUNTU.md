@@ -85,7 +85,7 @@ sudo systemctl start postgresql
 Crear base de datos y usuario:
 
 ```bash
-sudo -u postgres psql -c "CREATE USER optopad WITH PASSWORD 'CAMBIAR_CONTRASENA_SEGURA';"
+sudo -u postgres psql -c "CREATE USER optopad WITH PASSWORD 'optopad';"
 sudo -u postgres psql -c "CREATE DATABASE optopad OWNER optopad;"
 ```
 
@@ -120,18 +120,18 @@ Crear `.env.local` (ver `.env.example` como referencia):
 
 ```env
 # Base de datos PostgreSQL local
-DATABASE_URL=postgresql://optopad:CAMBIAR_CONTRASENA_SEGURA@localhost:5432/optopad
+DATABASE_URL=postgresql://optopad:optopad@localhost:5432/optopad
 
 # NextAuth
-NEXTAUTH_URL=https://tu-dominio.com
-NEXTAUTH_SECRET=generar_un_secreto_aleatorio_largo
+NEXTAUTH_URL=http://optopad.uv.es/
+NEXTAUTH_SECRET=9ZwjTMBX0zGUDLIMr31/fgLy1+OzRrKpeuAjIx+8YFg=
 
 # Activar modo standalone (obligatorio para este despliegue)
 NEXT_PUBLIC_USE_STANDALONE=true
 
 # Almacenamiento local (ruta absoluta en producción)
 UPLOAD_DIR=/var/opt/optopad/uploads
-NEXT_PUBLIC_UPLOAD_BASE_URL=https://tu-dominio.com/uploads
+NEXT_PUBLIC_UPLOAD_BASE_URL=http://optopad.uv.es/uploads
 ```
 
 Para generar `NEXTAUTH_SECRET`:
@@ -180,15 +180,41 @@ pm2 status
 
 ## 6. Nginx como Reverse Proxy
 
-Crear `/etc/nginx/sites-available/optopad`:
+### ¿Qué es y para qué sirve?
+
+Tu aplicación Next.js corre en el **puerto 3000** dentro del servidor. Sin Nginx:
+- Tendrías que acceder con `http://tu-servidor:3000`
+- El puerto 3000 tendría que estar abierto en el firewall
+- No podrías usar HTTPS ni el puerto 80 (el estándar de la web)
+
+Con Nginx como **reverse proxy**:
+- Los usuarios entran por `http://tu-dominio.com` (puerto 80, el habitual)
+- Nginx recibe la petición y la **redirige internamente** a tu app en `localhost:3000`
+- La app sigue escuchando solo en el servidor; Nginx actúa como intermediario
+
+```
+Usuario → http://tu-dominio.com (puerto 80) → Nginx → http://127.0.0.1:3000 (tu app)
+```
+
+### Paso a paso
+
+**1. Crear el archivo de configuración**
+
+Edita (o crea) el archivo con tu editor:
+
+```bash
+sudo nano /etc/nginx/sites-available/optopad
+```
+
+**2. Pega esta configuración** (cambia `tu-dominio.com` por tu dominio o IP real, p. ej. `optopad.uv.es` o `192.168.1.100`):
 
 ```nginx
 server {
     listen 80;
-    server_name tu-dominio.com;  # o la IP de la VM
+    server_name tu-dominio.com;  # Cambiar: optopad.uv.es, o la IP (ej. 192.168.1.100), o _ para aceptar cualquier host
 
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3000;   # Redirige todo a tu app Next.js
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -199,18 +225,27 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
-    # Servir archivos estáticos de uploads
     location /uploads/ {
-        alias /var/opt/optopad/uploads/;
+        alias /var/opt/optopad/uploads/;    # Archivos subidos (imágenes, etc.)
     }
 }
 ```
 
-Activar y recargar:
+Guarda con `Ctrl+O`, Enter, y sale con `Ctrl+X`.
+
+**3. Activar el sitio** (Nginx solo usa archivos que estén en `sites-enabled`):
 
 ```bash
+# Crear enlace simbólico para activar el sitio
 sudo ln -s /etc/nginx/sites-available/optopad /etc/nginx/sites-enabled/
+
+# Opcional: desactivar la página por defecto de Nginx
+sudo rm /etc/nginx/sites-enabled/default
+
+# Comprobar que la configuración es válida
 sudo nginx -t
+
+# Aplicar cambios
 sudo systemctl reload nginx
 ```
 

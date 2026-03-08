@@ -59,14 +59,16 @@ export default function EjecucionLayout({ children }: { children: React.ReactNod
             <Link href="/test" className="flex items-center gap-2">
               <OptopadLogo className="h-9" />
             </Link>
-            <h1 className="text-xl font-bold text-gray-900">Ejecución de tests</h1>
+            <h1 className="text-lg font-semibold text-[#356375] tracking-tight uppercase">
+              Realizar Test
+            </h1>
           </div>
           <div className="flex items-center gap-4">
             <Link
               href="/admin/pacientes"
-              className="text-[#356375] font-medium hover:underline"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#356375]/10 text-[#356375] font-semibold hover:bg-[#356375]/20 transition"
             >
-              Panel Admin
+              Volver
             </Link>
             <div className="text-right hidden sm:block">
               <p className="text-sm font-medium text-gray-900">{user?.email}</p>

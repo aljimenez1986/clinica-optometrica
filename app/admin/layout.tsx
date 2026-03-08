@@ -112,18 +112,18 @@ export default function AdminLayout({
     <div className="min-h-screen bg-gray-50 flex">
       <AdminSidebar />
       <div className="flex-1 flex flex-col">
-        {/* Header Superior */}
-        <header className="bg-white border-b border-gray-200 shadow-sm">
-          <div className="px-6 py-4 flex justify-between items-center">
+        {/* Header Superior - misma altura que el logo del sidebar */}
+        <header className="h-[72px] shrink-0 bg-white border-b border-gray-200 shadow-sm flex items-center">
+          <div className="px-6 w-full flex justify-between items-center">
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-bold text-gray-900">Panel de Administración</h1>
             </div>
             <div className="flex items-center gap-4">
               <Link
                 href="/test"
-                className="text-[#356375] font-medium hover:underline"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#356375]/10 text-[#356375] font-semibold hover:bg-[#356375]/20 transition"
               >
-                Ejecución de tests
+                Realizar Test
               </Link>
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-medium text-gray-900">{user?.email}</p>

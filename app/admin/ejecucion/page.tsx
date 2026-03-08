@@ -10,7 +10,7 @@ export default function AdminEjecucionRedirect() {
   }, [router])
   return (
     <div className="min-h-[200px] flex items-center justify-center">
-      <p className="text-gray-500">Redirigiendo a Ejecución de tests...</p>
+      <p className="text-gray-500">Redirigiendo a Realizar Test...</p>
     </div>
   )
 }

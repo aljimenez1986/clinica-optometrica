@@ -91,9 +91,10 @@ export default function AdminSidebar() {
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 min-h-screen flex flex-col">
-      {/* Logo */}
-      <div className="p-6 border-b border-gray-200">
+      {/* Logo - misma altura que la cabecera */}
+      <div className="h-[72px] flex items-center gap-2 px-6 border-b border-gray-200 shrink-0">
         <OptopadLogo className="h-10" />
+        <span className="font-bold text-xl text-gray-900">Optopad</span>
       </div>
 
       {/* Menú de Navegación */}
