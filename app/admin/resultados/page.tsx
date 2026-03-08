@@ -71,7 +71,7 @@ function ResultadosContent() {
         if (isStandaloneMode) {
           const [pacientesList, lista] = await Promise.all([
             api.pacientes.list(),
-            api.testResultados.list(pacienteId)
+            api.testResultados.list(pacienteId ?? undefined)
           ])
           const pac = (Array.isArray(pacientesList) ? pacientesList : []).find((p: any) => p.id === pacienteId)
           setPaciente(pac ?? null)
