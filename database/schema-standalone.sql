@@ -201,14 +201,22 @@ INSERT INTO ipads (id, nombre, marca, modelo)
   WHERE NOT EXISTS (SELECT 1 FROM ipads LIMIT 1);
 
 INSERT INTO test_configs (tipo_test, nombre, descripcion, ipad_id)
-  SELECT 'rejilla_amsler', 'Rejilla de Amsler', 'Test para detectar distorsiones en la visión central', id FROM ipads WHERE nombre = 'Por defecto' LIMIT 1
-  WHERE NOT EXISTS (SELECT 1 FROM test_configs WHERE tipo_test = 'rejilla_amsler');
+  SELECT 'rejilla_amsler', 'Rejilla de Amsler', 'Test para detectar distorsiones en la visión central', id
+  FROM ipads
+  WHERE nombre = 'Por defecto' AND NOT EXISTS (SELECT 1 FROM test_configs WHERE tipo_test = 'rejilla_amsler')
+  LIMIT 1;
 INSERT INTO test_configs (tipo_test, nombre, descripcion, ipad_id)
-  SELECT 'agudeza_visual', 'Agudeza Visual', 'Medición de la agudeza visual', id FROM ipads WHERE nombre = 'Por defecto' LIMIT 1
-  WHERE NOT EXISTS (SELECT 1 FROM test_configs WHERE tipo_test = 'agudeza_visual');
+  SELECT 'agudeza_visual', 'Agudeza Visual', 'Medición de la agudeza visual', id
+  FROM ipads
+  WHERE nombre = 'Por defecto' AND NOT EXISTS (SELECT 1 FROM test_configs WHERE tipo_test = 'agudeza_visual')
+  LIMIT 1;
 INSERT INTO test_configs (tipo_test, nombre, descripcion, ipad_id)
-  SELECT 'optopad_color', 'Optopad Color', 'Test de percepción de colores', id FROM ipads WHERE nombre = 'Por defecto' LIMIT 1
-  WHERE NOT EXISTS (SELECT 1 FROM test_configs WHERE tipo_test = 'optopad_color');
+  SELECT 'optopad_color', 'Optopad Color', 'Test de percepción de colores', id
+  FROM ipads
+  WHERE nombre = 'Por defecto' AND NOT EXISTS (SELECT 1 FROM test_configs WHERE tipo_test = 'optopad_color')
+  LIMIT 1;
 INSERT INTO test_configs (tipo_test, nombre, descripcion, ipad_id)
-  SELECT 'optopad_csf', 'Optopad CSF', 'Test de sensibilidad al contraste', id FROM ipads WHERE nombre = 'Por defecto' LIMIT 1
-  WHERE NOT EXISTS (SELECT 1 FROM test_configs WHERE tipo_test = 'optopad_csf');
+  SELECT 'optopad_csf', 'Optopad CSF', 'Test de sensibilidad al contraste', id
+  FROM ipads
+  WHERE nombre = 'Por defecto' AND NOT EXISTS (SELECT 1 FROM test_configs WHERE tipo_test = 'optopad_csf')
+  LIMIT 1;
