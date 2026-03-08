@@ -5,7 +5,17 @@
  * Requiere: .env.local con DATABASE_URL
  */
 const path = require('path')
-require('dotenv').config({ path: path.resolve(__dirname, '..', '.env.local') })
+const fs = require('fs')
+
+// Cargar .env.local sin depender de dotenv (para funcionar en producción)
+const envPath = path.resolve(__dirname, '..', '.env.local')
+if (fs.existsSync(envPath)) {
+  const content = fs.readFileSync(envPath, 'utf8')
+  for (const line of content.split('\n')) {
+    const m = line.match(/^([^#=]+)=(.*)$/)
+    if (m) process.env[m[1].trim()] = m[2].trim().replace(/^["']|["']$/g, '')
+  }
+}
 
 const { Pool } = require('pg')
 const bcrypt = require('bcryptjs')
