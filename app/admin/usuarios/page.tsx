@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/optopad-api'
+import { isStandaloneMode } from '@/lib/use-standalone'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,23 +30,31 @@ export default function UsuariosPage() {
 
   useEffect(() => {
     cargarDatos()
-  }, [])
+  }, [isStandaloneMode])
 
   async function cargarDatos() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: miPerfil } = await supabase.from('app_usuario').select('role').eq('auth_user_id', user.id).single()
-    setEsAdmin(miPerfil?.role === 'administrador')
-
-    const { data, error } = await supabase.from('app_usuario').select('*').order('created_at', { ascending: false })
-    if (error) {
-      console.error('Error cargando usuarios:', error)
+    try {
+      if (isStandaloneMode) {
+        const sess = await fetch('/api/auth/session', { credentials: 'include' }).then(r => r.json()).catch(() => null)
+        if (!sess?.user) return
+        setEsAdmin((sess.user as any)?.role === 'administrador')
+        const data = await api.usuarios.list()
+        setUsuarios(Array.isArray(data) ? data : [])
+      } else {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+        const { data: miPerfil } = await supabase.from('app_usuario').select('role').eq('auth_user_id', user.id).single()
+        setEsAdmin(miPerfil?.role === 'administrador')
+        const { data, error } = await supabase.from('app_usuario').select('*').order('created_at', { ascending: false })
+        if (error) throw error
+        setUsuarios(data || [])
+      }
+    } catch (e) {
+      console.error('Error cargando usuarios:', e)
       setUsuarios([])
-    } else {
-      setUsuarios(data || [])
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   function resetearFormulario() {
@@ -67,7 +77,15 @@ export default function UsuariosPage() {
 
     setGuardando(true)
     try {
-      if (editandoId) {
+      if (isStandaloneMode) {
+        if (editandoId) {
+          await api.usuarios.update(editandoId, { nombre: form.nombre?.trim() || null, role: form.role })
+          alert('Usuario actualizado correctamente')
+        } else {
+          await api.usuarios.create({ email: form.email.trim(), password: form.password, role: form.role, nombre: form.nombre?.trim() || null })
+          alert('Usuario creado correctamente')
+        }
+      } else if (editandoId) {
         const { error } = await supabase.from('app_usuario').update({ nombre: form.nombre?.trim() || null, role: form.role }).eq('id', editandoId)
         if (error) throw error
         alert('Usuario actualizado correctamente')
@@ -75,7 +93,6 @@ export default function UsuariosPage() {
         const { data: { session } } = await supabase.auth.getSession()
         const token = session?.access_token
         if (!token) throw new Error('Sesión no válida')
-
         const res = await fetch('/api/admin/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -94,16 +111,20 @@ export default function UsuariosPage() {
     }
   }
 
-  async function eliminarUsuario(id: string, authUserId: string) {
+  async function eliminarUsuario(id: string, authUserId?: string) {
     if (!confirm('¿Seguro que desea eliminar este usuario?')) return
     if (!esAdmin) return alert('Solo administradores pueden eliminar usuarios')
 
     setGuardando(true)
     try {
-      const res = await fetch(`/api/admin/users?authUserId=${authUserId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` } })
-      if (!res.ok) {
-        const json = await res.json()
-        throw new Error(json.error || 'Error al eliminar')
+      if (isStandaloneMode) {
+        await api.usuarios.delete(id)
+      } else {
+        const res = await fetch(`/api/admin/users?authUserId=${authUserId || id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` } })
+        if (!res.ok) {
+          const json = await res.json()
+          throw new Error(json.error || 'Error al eliminar')
+        }
       }
       cargarDatos()
     } catch (err: any) {

@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/optopad-api'
+import { isStandaloneMode } from '@/lib/use-standalone'
 
 export const dynamic = 'force-dynamic'
 
@@ -59,72 +61,61 @@ export default function TestsPage() {
 
   useEffect(() => {
     async function load() {
-      const { data } = await supabase.from('ipads').select('*').order('nombre')
-      const list = data || []
-      setIpads(list)
-      if (list.length > 0 && !ipadSeleccionado) {
-        setIpadSeleccionado(list[0].id)
+      try {
+        if (isStandaloneMode) {
+          const data = await api.ipads.list()
+          const list = Array.isArray(data) ? data : []
+          setIpads(list)
+          if (list.length > 0 && !ipadSeleccionado) setIpadSeleccionado(list[0].id)
+        } else {
+          const { data } = await supabase.from('ipads').select('*').order('nombre')
+          const list = data || []
+          setIpads(list)
+          if (list.length > 0 && !ipadSeleccionado) setIpadSeleccionado(list[0].id)
+        }
+      } catch (e) {
+        console.error('Error cargando iPads:', e)
       }
     }
     load()
-  }, [])
+  }, [isStandaloneMode])
 
   useEffect(() => {
-    if (testSeleccionado) {
-      cargarConfiguracionTest()
-    } else {
-      setTestConfig(null)
-      setPasos([])
-    }
-  }, [testSeleccionado, ipadSeleccionado])
+    if (testSeleccionado) cargarConfiguracionTest()
+    else { setTestConfig(null); setPasos([]) }
+  }, [testSeleccionado, ipadSeleccionado, isStandaloneMode])
 
   async function cargarConfiguracionTest() {
     if (!ipadSeleccionado) return
-    const { data: configData, error: configError } = await supabase
-      .from('test_configs')
-      .select('*')
-      .eq('ipad_id', ipadSeleccionado)
-      .eq('tipo_test', testSeleccionado)
-      .single()
-
-    if (configError && !configError.message.includes('No rows')) {
-      console.error('Error cargando configuración:', configError)
-    }
-
-    setTestConfig(configData)
-
-    // Cargar pasos del test
-    if (configData) {
-      const { data: pasosData, error: pasosError } = await supabase
-        .from('test_pasos')
-        .select('*')
-        .eq('test_config_id', configData.id)
-        .order('orden', { ascending: true })
-
-      if (pasosError) {
-        console.error('Error cargando pasos:', pasosError)
-        setPasos([])
+    try {
+      let configData: any = null
+      let pasosData: any[] = []
+      if (isStandaloneMode) {
+        configData = await api.testConfigs.get(ipadSeleccionado, testSeleccionado)
+        if (configData) pasosData = await api.testPasos.list(configData.id)
       } else {
-        // Parsear valores_correctos si vienen como JSON
-        const pasosParseados = (pasosData || []).map((paso: any) => {
-          let valoresCorrectos = undefined
-          if (paso.valores_correctos) {
-            if (Array.isArray(paso.valores_correctos)) {
-              valoresCorrectos = paso.valores_correctos
-            } else if (typeof paso.valores_correctos === 'string') {
-              try {
-                valoresCorrectos = JSON.parse(paso.valores_correctos)
-              } catch (e) {
-                console.error('Error parseando valores_correctos:', e)
-              }
-            }
-          }
-          const valorDecimal = paso.valor_decimal != null ? String(paso.valor_decimal) : ''
-          return { ...paso, valores_correctos: valoresCorrectos, valor_decimal: valorDecimal }
-        })
-        setPasos(pasosParseados)
+        const { data, error } = await supabase.from('test_configs').select('*').eq('ipad_id', ipadSeleccionado).eq('tipo_test', testSeleccionado).single()
+        if (!error || error.message.includes('No rows')) configData = data
+        if (configData) {
+          const { data: pasos } = await supabase.from('test_pasos').select('*').eq('test_config_id', configData.id).order('orden', { ascending: true })
+          pasosData = pasos || []
+        }
       }
-    } else {
+      setTestConfig(configData)
+      const pasosParseados = (pasosData || []).map((paso: any) => {
+        let valoresCorrectos = undefined
+        if (paso.valores_correctos) {
+          if (Array.isArray(paso.valores_correctos)) valoresCorrectos = paso.valores_correctos
+          else if (typeof paso.valores_correctos === 'string') {
+            try { valoresCorrectos = JSON.parse(paso.valores_correctos) } catch (_) {}
+          }
+        }
+        return { ...paso, valores_correctos: valoresCorrectos, valor_decimal: paso.valor_decimal != null ? String(paso.valor_decimal) : '' }
+      })
+      setPasos(pasosParseados)
+    } catch (e) {
+      console.error('Error cargando configuración:', e)
+      setTestConfig(null)
       setPasos([])
     }
   }
@@ -132,28 +123,33 @@ export default function TestsPage() {
   async function crearConfiguracionTest() {
     if (!ipadSeleccionado) {
       alert('Debe seleccionar un iPad para crear la configuración del test.')
-      return
+      return undefined
     }
     const tipoTest = tiposTest.find(t => t.id === testSeleccionado)
-    const { data, error } = await supabase
-      .from('test_configs')
-      .insert([{
+    try {
+      if (isStandaloneMode) {
+        const data = await api.testConfigs.create({
+          tipo_test: testSeleccionado,
+          nombre: tipoTest?.nombre || testSeleccionado,
+          descripcion: `Configuración para ${tipoTest?.nombre}`,
+          ipad_id: ipadSeleccionado
+        })
+        setTestConfig(data)
+        return data
+      }
+      const { data, error } = await supabase.from('test_configs').insert([{
         tipo_test: testSeleccionado,
         nombre: tipoTest?.nombre || testSeleccionado,
         descripcion: `Configuración para ${tipoTest?.nombre}`,
         ipad_id: ipadSeleccionado
-      }])
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Error creando configuración:', error)
-      alert('Error al crear la configuración del test')
+      }]).select().single()
+      if (error) throw error
+      setTestConfig(data)
+      return data
+    } catch (e: any) {
+      alert('Error al crear la configuración: ' + (e?.message || ''))
       return undefined
     }
-
-    setTestConfig(data)
-    return data
   }
 
   async function subirImagenPaso(e: React.FormEvent) {
@@ -186,36 +182,30 @@ export default function TestsPage() {
       }
 
       if (archivo) {
-        const timestamp = Date.now()
-        const extension = archivo.name.split('.').pop()
-        const nombreArchivo = `paso_${orden}_${timestamp}.${extension}`
-        const rutaArchivo = `${testSeleccionado}/${nombreArchivo}`
-
-        // Subir imagen a Supabase Storage
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('tests')
-          .upload(rutaArchivo, archivo, {
-            cacheControl: '3600',
-            upsert: false
-          })
-
-        if (uploadError) {
-          if (uploadError.message.includes('Bucket not found')) {
-            alert('El bucket de almacenamiento no existe. Por favor, créelo en Supabase Storage.')
-            setSubiendo(false)
-            return
+        if (isStandaloneMode) {
+          const uploadRes = await api.upload(archivo, String(testSeleccionado))
+          datosPaso.nombre_archivo = uploadRes.nombre_archivo
+          datosPaso.ruta_archivo = uploadRes.ruta_archivo
+          datosPaso.url_publica = uploadRes.url_publica
+        } else {
+          const timestamp = Date.now()
+          const extension = archivo.name.split('.').pop()
+          const nombreArchivo = `paso_${orden}_${timestamp}.${extension}`
+          const rutaArchivo = `${testSeleccionado}/${nombreArchivo}`
+          const { error: uploadError } = await supabase.storage.from('tests').upload(rutaArchivo, archivo, { cacheControl: '3600', upsert: false })
+          if (uploadError) {
+            if (uploadError.message.includes('Bucket not found')) {
+              alert('El bucket de almacenamiento no existe. Por favor, créelo en Supabase Storage.')
+              setSubiendo(false)
+              return
+            }
+            throw uploadError
           }
-          throw uploadError
+          const { data: urlData } = supabase.storage.from('tests').getPublicUrl(rutaArchivo)
+          datosPaso.nombre_archivo = nombreArchivo
+          datosPaso.ruta_archivo = rutaArchivo
+          datosPaso.url_publica = urlData.publicUrl
         }
-
-        // Obtener URL pública
-        const { data: urlData } = supabase.storage
-          .from('tests')
-          .getPublicUrl(rutaArchivo)
-
-        datosPaso.nombre_archivo = nombreArchivo
-        datosPaso.ruta_archivo = rutaArchivo
-        datosPaso.url_publica = urlData.publicUrl
       }
 
       // Si es agudeza visual, agregar valores correctos
@@ -228,36 +218,24 @@ export default function TestsPage() {
         }
         datosPaso.valores_correctos = valoresFiltrados
       }
-      // Guardar o actualizar paso
       if (pasoEditando && pasoEditando.id) {
-        // Actualizar paso existente
-        const { error: updateError } = await supabase
-          .from('test_pasos')
-          .update(datosPaso)
-          .eq('id', pasoEditando.id)
-
-        if (updateError) throw updateError
+        if (isStandaloneMode) {
+          await api.testPasos.update(pasoEditando.id, datosPaso)
+        } else {
+          const { error } = await supabase.from('test_pasos').update(datosPaso).eq('id', pasoEditando.id)
+          if (error) throw error
+        }
       } else {
         if (!archivo) {
           alert('Por favor, seleccione una imagen para el nuevo paso')
           setSubiendo(false)
           return
         }
-        const { error: insertError } = await supabase
-          .from('test_pasos')
-          .insert([{
-            test_config_id: testConfig.id,
-            orden: orden,
-            ...datosPaso
-          }])
-
-        if (insertError) {
-          if (insertError.message.includes('does not exist')) {
-            console.warn('La tabla test_pasos no existe. Ejecuta el script SQL primero.')
-            alert('Error: La tabla de pasos no existe. Por favor, ejecuta el script SQL de configuración.')
-          } else {
-            throw insertError
-          }
+        if (isStandaloneMode) {
+          await api.testPasos.create({ test_config_id: testConfig.id, orden, ...datosPaso })
+        } else {
+          const { error } = await supabase.from('test_pasos').insert([{ test_config_id: testConfig.id, orden, ...datosPaso }])
+          if (error) throw error
         }
       }
 
@@ -282,23 +260,20 @@ export default function TestsPage() {
 
   async function eliminarPaso(pasoId: string, rutaArchivo?: string | null) {
     if (!confirm('¿Seguro que desea eliminar este paso?')) return
-
-    const { error: dbError } = await supabase
-      .from('test_pasos')
-      .delete()
-      .eq('id', pasoId)
-
-    if (dbError) {
-      console.error('Error eliminando paso:', dbError)
+    try {
+      if (isStandaloneMode) {
+        await api.testPasos.delete(pasoId)
+      } else {
+        const { error } = await supabase.from('test_pasos').delete().eq('id', pasoId)
+        if (error) throw error
+        if (rutaArchivo) {
+          const { error: storageError } = await supabase.storage.from('tests').remove([rutaArchivo])
+          if (storageError) console.error('Error eliminando archivo:', storageError)
+        }
+      }
+    } catch (e) {
+      console.error('Error eliminando paso:', e)
     }
-
-    if (rutaArchivo) {
-      const { error: storageError } = await supabase.storage
-        .from('tests')
-        .remove([rutaArchivo])
-      if (storageError) console.error('Error eliminando archivo:', storageError)
-    }
-
     cargarConfiguracionTest()
   }
 
@@ -328,26 +303,26 @@ export default function TestsPage() {
 
     if (!valorTrim) {
       if (paso?.id) {
-        await supabase.from('test_pasos').delete().eq('id', paso.id)
+        if (isStandaloneMode) await api.testPasos.delete(paso.id)
+        else await supabase.from('test_pasos').delete().eq('id', paso.id)
         cargarConfiguracionTest()
       }
       return
     }
-
     if (!OPCIONES_DIRECCION.includes(valorTrim as typeof OPCIONES_DIRECCION[number])) return
-
     const payload: Record<string, unknown> = { valores_correctos: [valorTrim], valor_decimal: valorDecimalToSave }
-
     if (paso?.id) {
-      const { error } = await supabase.from('test_pasos').update(payload).eq('id', paso.id)
-      if (!error) cargarConfiguracionTest()
+      if (isStandaloneMode) await api.testPasos.update(paso.id, payload)
+      else await supabase.from('test_pasos').update(payload).eq('id', paso.id)
+      cargarConfiguracionTest()
       return
     }
-
-    const { error } = await supabase.from('test_pasos').insert([{
-      test_config_id: config.id, orden, nombre_archivo: null, ruta_archivo: null, url_publica: null, descripcion: null, ...payload
-    }])
-    if (!error) cargarConfiguracionTest()
+    if (isStandaloneMode) {
+      await api.testPasos.create({ test_config_id: config.id, orden, nombre_archivo: null, ruta_archivo: null, url_publica: null, descripcion: null, ...payload })
+    } else {
+      await supabase.from('test_pasos').insert([{ test_config_id: config.id, orden, nombre_archivo: null, ruta_archivo: null, url_publica: null, descripcion: null, ...payload }])
+    }
+    cargarConfiguracionTest()
   }
 
   async function guardarValorDecimalOptopadColor(fila: string, pasoNum: number, valorDecimal: string) {
@@ -356,8 +331,11 @@ export default function TestsPage() {
     const paso = pasos.find(p => p.orden === orden)
     if (!paso?.id) return
     const dec = parseValorDecimal(valorDecimal)
-    const { error } = await supabase.from('test_pasos').update({ valor_decimal: dec }).eq('id', paso.id)
-    if (!error) cargarConfiguracionTest()
+    try {
+      if (isStandaloneMode) await api.testPasos.update(paso.id, { valor_decimal: dec })
+      else await supabase.from('test_pasos').update({ valor_decimal: dec }).eq('id', paso.id)
+      cargarConfiguracionTest()
+    } catch (_) {}
   }
 
   function parseArchivoDecimalesOptopadColor(texto: string): (string | null)[][] | null {
@@ -394,12 +372,12 @@ export default function TestsPage() {
           const orden = ordenFromFilaYPaso(fila, pasoNum)
           const paso = pasos.find(p => p.orden === orden)
           if (paso?.id) {
-            await supabase.from('test_pasos').update({ valor_decimal: decimal }).eq('id', paso.id)
+            if (isStandaloneMode) await api.testPasos.update(paso.id, { valor_decimal: decimal })
+            else await supabase.from('test_pasos').update({ valor_decimal: decimal }).eq('id', paso.id)
           } else if (decimal != null) {
-            await supabase.from('test_pasos').insert([{
-              test_config_id: config.id, orden, nombre_archivo: null, ruta_archivo: null, url_publica: null, descripcion: null,
-              valores_correctos: ['arriba'], valor_decimal: decimal
-            }])
+            const payload = { test_config_id: config.id, orden, nombre_archivo: null, ruta_archivo: null, url_publica: null, descripcion: null, valores_correctos: ['arriba'], valor_decimal: decimal }
+            if (isStandaloneMode) await api.testPasos.create(payload)
+            else await supabase.from('test_pasos').insert([payload])
           }
         }
       }
@@ -453,29 +431,20 @@ export default function TestsPage() {
   async function reordenarPasos(pasoId: string, nuevaPosicion: number) {
     const pasoActual = pasos.find(p => p.id === pasoId)
     if (!pasoActual) return
-
     const pasoIntercambio = pasos.find(p => p.orden === nuevaPosicion)
-    
     try {
-      // Intercambiar los órdenes
       if (pasoIntercambio) {
-        // Primero actualizar el paso que estaba en la nueva posición
-        const { error: error1 } = await supabase
-          .from('test_pasos')
-          .update({ orden: pasoActual.orden })
-          .eq('id', pasoIntercambio.id)
-
-        if (error1) throw error1
+        if (isStandaloneMode) await api.testPasos.update(pasoIntercambio.id!, { orden: pasoActual.orden })
+        else {
+          const { error } = await supabase.from('test_pasos').update({ orden: pasoActual.orden }).eq('id', pasoIntercambio.id)
+          if (error) throw error
+        }
       }
-
-      // Luego actualizar el paso actual
-      const { error: error2 } = await supabase
-        .from('test_pasos')
-        .update({ orden: nuevaPosicion })
-        .eq('id', pasoId)
-
-      if (error2) throw error2
-
+      if (isStandaloneMode) await api.testPasos.update(pasoId, { orden: nuevaPosicion })
+      else {
+        const { error } = await supabase.from('test_pasos').update({ orden: nuevaPosicion }).eq('id', pasoId)
+        if (error) throw error
+      }
       cargarConfiguracionTest()
     } catch (error) {
       console.error('Error reordenando:', error)

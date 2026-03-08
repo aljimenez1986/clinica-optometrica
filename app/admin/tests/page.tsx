@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/optopad-api'
+import { isStandaloneMode } from '@/lib/use-standalone'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 export const dynamic = 'force-dynamic'
@@ -82,66 +84,71 @@ export default function TestsPage() {
 
   useEffect(() => {
     async function load() {
-      const resRes = await supabase
-        .from('test_resultados')
-        .select('id, paciente_id, fecha_realizacion, datos_respuesta, test_config_id')
-        .order('fecha_realizacion', { ascending: false })
-
-      if (resRes.error) {
-        console.error('Error cargando resultados:', resRes.error)
+      try {
+        if (isStandaloneMode) {
+          const lista = await api.testResultados.list(undefined, { all: true })
+          const resList = Array.isArray(lista) ? lista : []
+          if (resList.length === 0) {
+            setResultados([])
+            setLoading(false)
+            return
+          }
+          const pacienteIds = [...new Set(resList.map((r: any) => r.paciente_id).filter(Boolean))]
+          const configIds = [...new Set(resList.map((r: any) => r.test_config_id).filter(Boolean))]
+          const [pacientesList, configsList, ipadsList] = await Promise.all([
+            api.pacientes.list(),
+            api.testConfigs.list(),
+            api.ipads.list()
+          ])
+          const pacs = Array.isArray(pacientesList) ? pacientesList : []
+          const cfgs = Array.isArray(configsList) ? configsList : []
+          const ips = Array.isArray(ipadsList) ? ipadsList : []
+          const pacientes = pacs.filter((p: any) => pacienteIds.includes(p.id)).reduce((acc: Record<string, any>, p: any) => { acc[p.id] = p; return acc }, {})
+          const configs = cfgs.filter((c: any) => configIds.includes(c.id)).reduce((acc: Record<string, any>, c: any) => { acc[c.id] = c; return acc }, {})
+          const ipadIds = [...new Set(cfgs.map((c: any) => c.ipad_id).filter(Boolean))]
+          const ipads = ips.filter((i: any) => ipadIds.includes(i.id)).reduce((acc: Record<string, any>, i: any) => { acc[i.id] = i; return acc }, {})
+          const rows: Row[] = resList.map((r: any) => ({
+            ...r,
+            test_configs: r.test_config_id ? configs[r.test_config_id] ?? null : null,
+            _ipads: r.test_config_id && configs[r.test_config_id]?.ipad_id ? ipads[configs[r.test_config_id].ipad_id] ?? null : null,
+            _paciente: r.paciente_id ? pacientes[r.paciente_id] ?? null : null
+          }))
+          setResultados(rows)
+        } else {
+          const resRes = await supabase.from('test_resultados').select('id, paciente_id, fecha_realizacion, datos_respuesta, test_config_id').order('fecha_realizacion', { ascending: false })
+          if (resRes.error) throw resRes.error
+          const lista = resRes.data ?? []
+          if (lista.length === 0) { setResultados([]); setLoading(false); return }
+          const pacienteIds = [...new Set(lista.map((r: any) => r.paciente_id).filter(Boolean))]
+          const configIds = [...new Set(lista.map((r: any) => r.test_config_id).filter(Boolean))]
+          const [pacientesRes, configsRes] = await Promise.all([
+            supabase.from('pacientes').select('id, id_paciente, nombre, fecha_nacimiento').in('id', pacienteIds),
+            supabase.from('test_configs').select('id, tipo_test, ipad_id').in('id', configIds)
+          ])
+          const pacientes = (pacientesRes.data ?? []).reduce((acc: Record<string, any>, p: any) => { acc[p.id] = p; return acc }, {})
+          const configs = (configsRes.data ?? []).reduce((acc: Record<string, any>, c: any) => { acc[c.id] = c; return acc }, {})
+          const ipadIds = [...new Set((configsRes.data ?? []).map((c: any) => c.ipad_id).filter(Boolean))]
+          let ipads: Record<string, any> = {}
+          if (ipadIds.length > 0) {
+            const ipadsRes = await supabase.from('ipads').select('id, nombre, marca, modelo').in('id', ipadIds)
+            ipads = (ipadsRes.data ?? []).reduce((acc: Record<string, any>, i: any) => { acc[i.id] = i; return acc }, {})
+          }
+          const rows: Row[] = lista.map((r: any) => ({
+            ...r,
+            test_configs: r.test_config_id ? configs[r.test_config_id] ?? null : null,
+            _ipads: r.test_config_id && configs[r.test_config_id]?.ipad_id ? ipads[configs[r.test_config_id].ipad_id] ?? null : null,
+            _paciente: r.paciente_id ? pacientes[r.paciente_id] ?? null : null
+          }))
+          setResultados(rows)
+        }
+      } catch (e) {
+        console.error('Error cargando resultados:', e)
         setResultados([])
-        setLoading(false)
-        return
       }
-
-      const lista = resRes.data ?? []
-      if (lista.length === 0) {
-        setResultados([])
-        setLoading(false)
-        return
-      }
-
-      const pacienteIds = [...new Set(lista.map((r: any) => r.paciente_id).filter(Boolean))]
-      const configIds = [...new Set(lista.map((r: any) => r.test_config_id).filter(Boolean))]
-
-      const [pacientesRes, configsRes] = await Promise.all([
-        supabase.from('pacientes').select('id, id_paciente, nombre, fecha_nacimiento').in('id', pacienteIds),
-        supabase.from('test_configs').select('id, tipo_test, ipad_id').in('id', configIds)
-      ])
-
-      const pacientes = (pacientesRes.data ?? []).reduce((acc: Record<string, any>, p: any) => {
-        acc[p.id] = p
-        return acc
-      }, {})
-      const configs = (configsRes.data ?? []).reduce((acc: Record<string, any>, c: any) => {
-        acc[c.id] = c
-        return acc
-      }, {})
-
-      const ipadIds = [...new Set((configsRes.data ?? []).map((c: any) => c.ipad_id).filter(Boolean))]
-      let ipads: Record<string, any> = {}
-      if (ipadIds.length > 0) {
-        const ipadsRes = await supabase.from('ipads').select('id, nombre, marca, modelo').in('id', ipadIds)
-        ipads = (ipadsRes.data ?? []).reduce((acc: Record<string, any>, i: any) => {
-          acc[i.id] = i
-          return acc
-        }, {})
-      }
-
-      const rows: Row[] = lista.map((r: any) => ({
-        ...r,
-        test_configs: r.test_config_id ? configs[r.test_config_id] ?? null : null,
-        _ipads: r.test_config_id && configs[r.test_config_id]?.ipad_id
-          ? ipads[configs[r.test_config_id].ipad_id] ?? null
-          : null,
-        _paciente: r.paciente_id ? pacientes[r.paciente_id] ?? null : null
-      }))
-
-      setResultados(rows)
       setLoading(false)
     }
     load()
-  }, [])
+  }, [isStandaloneMode])
 
   useEffect(() => {
     if (!graficaRow || (graficaRow.test_configs?.tipo_test ?? '') !== 'optopad_color') {
@@ -151,10 +158,17 @@ export default function TestsPage() {
     const cfgId = graficaRow.test_config_id
     if (!cfgId) return
     ;(async () => {
-      const { data } = await supabase.from('test_pasos').select('id, orden, valor_decimal').eq('test_config_id', cfgId).order('orden')
-      setGraficaPasos((data ?? []) as PasoConfig[])
+      try {
+        if (isStandaloneMode) {
+          const data = await api.testPasos.list(cfgId)
+          setGraficaPasos((Array.isArray(data) ? data : []) as PasoConfig[])
+        } else {
+          const { data } = await supabase.from('test_pasos').select('id, orden, valor_decimal').eq('test_config_id', cfgId).order('orden')
+          setGraficaPasos((data ?? []) as PasoConfig[])
+        }
+      } catch (_) {}
     })()
-  }, [graficaRow])
+  }, [graficaRow, isStandaloneMode])
 
   async function recalcularValoresOptopad() {
     setRecalculando(true)
@@ -163,17 +177,22 @@ export default function TestsPage() {
       const configIds = [...new Set(optopadResults.map(r => r.test_config_id).filter(Boolean))]
       const pasosByConfig: Record<string, PasoConfig[]> = {}
       for (const cid of configIds) {
-        const { data } = await supabase.from('test_pasos').select('id, orden, valor_decimal').eq('test_config_id', cid).order('orden')
-        pasosByConfig[cid] = (data ?? []) as PasoConfig[]
+        if (isStandaloneMode) {
+          const data = await api.testPasos.list(cid)
+          pasosByConfig[cid] = (Array.isArray(data) ? data : []) as PasoConfig[]
+        } else {
+          const { data } = await supabase.from('test_pasos').select('id, orden, valor_decimal').eq('test_config_id', cid).order('orden')
+          pasosByConfig[cid] = (data ?? []) as PasoConfig[]
+        }
+      }
+      const parsePos = (v: unknown): number => {
+        if (typeof v === 'number' && !isNaN(v)) return v
+        if (typeof v === 'string' && /^-?\d+$/.test(v)) return parseInt(v, 10)
+        return -1
       }
       for (const r of optopadResults) {
         const pasosList = pasosByConfig[r.test_config_id] ?? []
         const d = datos(r)
-        const parsePos = (v: unknown): number => {
-          if (typeof v === 'number' && !isNaN(v)) return v
-          if (typeof v === 'string' && /^-?\d+$/.test(v)) return parseInt(v, 10)
-          return -1
-        }
         const rP = parsePos(d.resultado_p)
         const rD = parsePos(d.resultado_d)
         const rT = parsePos(d.resultado_t)
@@ -184,20 +203,40 @@ export default function TestsPage() {
         const vD = ultimoD >= 0 ? calcularResultadoValor(pasosList, 1, ultimoD) : null
         const vT = ultimoT >= 0 ? calcularResultadoValor(pasosList, 2, ultimoT) : null
         const nuevosDatos = { ...d, resultado_p_valor: vP, resultado_d_valor: vD, resultado_t_valor: vT }
-        await supabase.from('test_resultados').update({ datos_respuesta: nuevosDatos }).eq('id', r.id)
+        if (isStandaloneMode) await api.testResultados.update(r.id, { datos_respuesta: nuevosDatos })
+        else await supabase.from('test_resultados').update({ datos_respuesta: nuevosDatos }).eq('id', r.id)
       }
-      const resRes = await supabase.from('test_resultados').select('id, paciente_id, fecha_realizacion, datos_respuesta, test_config_id').order('fecha_realizacion', { ascending: false })
-      if (!resRes.error && resRes.data) {
-        const lista = resRes.data
-        const configIds = [...new Set(lista.map((x: any) => x.test_config_id).filter(Boolean))]
-        const [pacientesRes, configsRes] = await Promise.all([supabase.from('pacientes').select('id, id_paciente, nombre, fecha_nacimiento').in('id', [...new Set(lista.map((x: any) => x.paciente_id).filter(Boolean))]), supabase.from('test_configs').select('id, tipo_test, ipad_id').in('id', configIds)])
-        const pacientes = ((pacientesRes.data ?? []) as any[]).reduce((acc: Record<string, any>, p: any) => { acc[p.id] = p; return acc }, {})
-        const configs = ((configsRes.data ?? []) as any[]).reduce((acc: Record<string, any>, c: any) => { acc[c.id] = c; return acc }, {})
-        const ipadIds = [...new Set((configsRes.data ?? []).map((c: any) => c.ipad_id).filter(Boolean))]
-        const ipadsRes = ipadIds.length > 0 ? await supabase.from('ipads').select('id, nombre, marca, modelo').in('id', ipadIds) : { data: [] }
-        const ipads = ((ipadsRes.data ?? []) as any[]).reduce((acc: Record<string, any>, i: any) => { acc[i.id] = i; return acc }, {})
-        const rows: Row[] = lista.map((r: any) => ({ ...r, test_configs: configs[r.test_config_id] ?? null, _ipads: r.test_config_id && configs[r.test_config_id]?.ipad_id ? ipads[configs[r.test_config_id].ipad_id] ?? null : null, _paciente: pacientes[r.paciente_id] ?? null }))
-        setResultados(rows)
+      if (isStandaloneMode) {
+        const lista = await api.testResultados.list(undefined, { all: true })
+        const resList = Array.isArray(lista) ? lista : []
+        if (resList.length > 0) {
+          const pIds = [...new Set(resList.map((x: any) => x.paciente_id).filter(Boolean))]
+          const cIds = [...new Set(resList.map((x: any) => x.test_config_id).filter(Boolean))]
+          const [pacientesList, configsList, ipadsList] = await Promise.all([api.pacientes.list(), api.testConfigs.list(), api.ipads.list()])
+          const pacs = Array.isArray(pacientesList) ? pacientesList.filter((p: any) => pIds.includes(p.id)) : []
+          const cfgs = Array.isArray(configsList) ? configsList.filter((c: any) => cIds.includes(c.id)) : []
+          const ips = Array.isArray(ipadsList) ? ipadsList : []
+          const pacientes = pacs.reduce((acc: Record<string, any>, p: any) => { acc[p.id] = p; return acc }, {})
+          const configs = cfgs.reduce((acc: Record<string, any>, c: any) => { acc[c.id] = c; return acc }, {})
+          const ipadIds = [...new Set(cfgs.map((c: any) => c.ipad_id).filter(Boolean))]
+          const ipads = ips.filter((i: any) => ipadIds.includes(i.id)).reduce((acc: Record<string, any>, i: any) => { acc[i.id] = i; return acc }, {})
+          const rows: Row[] = resList.map((r: any) => ({ ...r, test_configs: configs[r.test_config_id] ?? null, _ipads: r.test_config_id && configs[r.test_config_id]?.ipad_id ? ipads[configs[r.test_config_id].ipad_id] ?? null : null, _paciente: pacientes[r.paciente_id] ?? null }))
+          setResultados(rows)
+        }
+      } else {
+        const resRes = await supabase.from('test_resultados').select('id, paciente_id, fecha_realizacion, datos_respuesta, test_config_id').order('fecha_realizacion', { ascending: false })
+        if (!resRes.error && resRes.data) {
+          const lista = resRes.data
+          const cIds = [...new Set(lista.map((x: any) => x.test_config_id).filter(Boolean))]
+          const [pacientesRes, configsRes] = await Promise.all([supabase.from('pacientes').select('id, id_paciente, nombre, fecha_nacimiento').in('id', [...new Set(lista.map((x: any) => x.paciente_id).filter(Boolean))]), supabase.from('test_configs').select('id, tipo_test, ipad_id').in('id', cIds)])
+          const pacientes = (pacientesRes.data ?? []).reduce((acc: Record<string, any>, p: any) => { acc[p.id] = p; return acc }, {})
+          const configs = (configsRes.data ?? []).reduce((acc: Record<string, any>, c: any) => { acc[c.id] = c; return acc }, {})
+          const ipadIds = [...new Set((configsRes.data ?? []).map((c: any) => c.ipad_id).filter(Boolean))]
+          const ipadsRes = ipadIds.length > 0 ? await supabase.from('ipads').select('id, nombre, marca, modelo').in('id', ipadIds) : { data: [] }
+          const ipads = (ipadsRes.data ?? []).reduce((acc: Record<string, any>, i: any) => { acc[i.id] = i; return acc }, {})
+          const rows: Row[] = lista.map((r: any) => ({ ...r, test_configs: configs[r.test_config_id] ?? null, _ipads: r.test_config_id && configs[r.test_config_id]?.ipad_id ? ipads[configs[r.test_config_id].ipad_id] ?? null : null, _paciente: pacientes[r.paciente_id] ?? null }))
+          setResultados(rows)
+        }
       }
       alert('Valores recalculados correctamente')
     } catch (e) {

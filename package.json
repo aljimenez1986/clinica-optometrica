@@ -10,12 +10,17 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",
+    "bcryptjs": "^2.4.3",
     "next": "16.1.6",
+    "next-auth": "^4.24.11",
+    "pg": "^8.13.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "recharts": "^2.15.0"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/pg": "^8.11.6",
     "dotenv": "^16.4.5",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",

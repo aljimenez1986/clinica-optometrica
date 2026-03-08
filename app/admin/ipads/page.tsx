@@ -1,13 +1,17 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { useSession } from 'next-auth/react'
 import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/optopad-api'
+import { isStandaloneMode } from '@/lib/use-standalone'
 
 export const dynamic = 'force-dynamic'
 
 type OrdenIpad = 'nombre' | 'marca' | 'modelo' | ''
 
 export default function IpadsPage() {
+  const { data: session } = useSession()
   const [ipads, setIpads] = useState<any[]>([])
   const [clinicos, setClinicos] = useState<{ id: string; nombre?: string; email: string }[]>([])
   const [esAdmin, setEsAdmin] = useState(false)
@@ -22,9 +26,13 @@ export default function IpadsPage() {
     verificarRol()
     fetchIpads()
     fetchClinicos()
-  }, [])
+  }, [isStandaloneMode, session])
 
   async function verificarRol() {
+    if (isStandaloneMode && session?.user) {
+      setEsAdmin((session.user as any).role === 'administrador')
+      return
+    }
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     const { data } = await supabase.from('app_usuario').select('role').eq('auth_user_id', user.id).single()
@@ -32,28 +40,33 @@ export default function IpadsPage() {
   }
 
   async function fetchIpads() {
-    const { data, error } = await supabase
-      .from('ipads')
-      .select('*, ipad_clinico(usuario_id)')
-      .order('created_at', { ascending: false })
-    if (error) {
-      console.error('Error cargando iPads:', error.message)
-      return
+    try {
+      if (isStandaloneMode) {
+        const data = await api.ipads.list()
+        setIpads(Array.isArray(data) ? data : [])
+        return
+      }
+      const { data, error } = await supabase.from('ipads').select('*, ipad_clinico(usuario_id)').order('created_at', { ascending: false })
+      if (error) throw error
+      setIpads(data || [])
+    } catch (e) {
+      console.error('Error cargando iPads:', e)
     }
-    setIpads(data || [])
   }
 
   async function fetchClinicos() {
-    const { data, error } = await supabase
-      .from('app_usuario')
-      .select('id, nombre, email')
-      .eq('role', 'clinico')
-      .order('email')
-    if (error) {
-      console.error('Error cargando clínicos:', error.message)
-      return
+    try {
+      if (isStandaloneMode) {
+        const data = await api.usuarios.list('clinico')
+        setClinicos(Array.isArray(data) ? data : [])
+        return
+      }
+      const { data, error } = await supabase.from('app_usuario').select('id, nombre, email').eq('role', 'clinico')
+      if (error) throw error
+      setClinicos(data || [])
+    } catch (e) {
+      console.error('Error cargando clínicos:', e)
     }
-    setClinicos(data || [])
   }
 
   function resetearFormulario() {
@@ -64,8 +77,15 @@ export default function IpadsPage() {
 
   async function abrirFormularioEdicion(ipad: any) {
     let clinicosIds: string[] = []
-    const { data } = await supabase.from('ipad_clinico').select('usuario_id').eq('ipad_id', ipad.id)
-    if (data) clinicosIds = data.map((r: { usuario_id: string }) => r.usuario_id)
+    if (isStandaloneMode) {
+      try {
+        const data = await api.ipads.getClinicos(ipad.id)
+        clinicosIds = Array.isArray(data) ? data : []
+      } catch (_) {}
+    } else {
+      const { data } = await supabase.from('ipad_clinico').select('usuario_id').eq('ipad_id', ipad.id)
+      if (data) clinicosIds = data.map((r: { usuario_id: string }) => r.usuario_id)
+    }
     setForm({
       nombre: ipad.nombre || '',
       marca: ipad.marca || '',
@@ -85,40 +105,52 @@ export default function IpadsPage() {
     const { nombre, marca, modelo, clinicosIds } = form
     const payload = { nombre, marca, modelo }
 
-    let ipadId: string
-    if (editandoId) {
-      const { error } = await supabase.from('ipads').update(payload).eq('id', editandoId)
-      if (error) {
-        alert('Error al actualizar: ' + error.message)
-        return
+    try {
+      let ipadId: string
+      if (isStandaloneMode) {
+        if (editandoId) {
+          await api.ipads.update(editandoId, payload)
+          ipadId = editandoId
+        } else {
+          const created = await api.ipads.create(payload)
+          ipadId = created.id
+        }
+        await api.ipads.setClinicos(ipadId, clinicosIds)
+      } else {
+        if (editandoId) {
+          const { error } = await supabase.from('ipads').update(payload).eq('id', editandoId)
+          if (error) throw error
+          ipadId = editandoId
+        } else {
+          const { data, error } = await supabase.from('ipads').insert([payload]).select('id').single()
+          if (error) throw error
+          ipadId = data.id
+        }
+        await supabase.from('ipad_clinico').delete().eq('ipad_id', ipadId)
+        if (clinicosIds.length > 0) {
+          await supabase.from('ipad_clinico').insert(clinicosIds.map(usuario_id => ({ ipad_id: ipadId, usuario_id })))
+        }
       }
-      ipadId = editandoId
-    } else {
-      const { data, error } = await supabase.from('ipads').insert([payload]).select('id').single()
-      if (error) {
-        alert('Error al crear: ' + error.message)
-        return
-      }
-      ipadId = data.id
+      resetearFormulario()
+      fetchIpads()
+    } catch (err: any) {
+      alert('Error: ' + (err.message || 'Error al guardar'))
     }
-
-    await supabase.from('ipad_clinico').delete().eq('ipad_id', ipadId)
-    if (clinicosIds.length > 0) {
-      await supabase.from('ipad_clinico').insert(clinicosIds.map(usuario_id => ({ ipad_id: ipadId, usuario_id })))
-    }
-
-    resetearFormulario()
-    fetchIpads()
   }
 
   async function eliminarIpad(id: string) {
     if (!confirm('¿Seguro que desea eliminar este iPad? Las configuraciones de tests asociadas también se verán afectadas.')) return
-    const { error } = await supabase.from('ipads').delete().eq('id', id)
-    if (error) {
-      alert('Error al eliminar: ' + error.message)
-      return
+    try {
+      if (isStandaloneMode) {
+        await api.ipads.delete(id)
+      } else {
+        const { error } = await supabase.from('ipads').delete().eq('id', id)
+        if (error) throw error
+      }
+      fetchIpads()
+    } catch (err: any) {
+      alert('Error al eliminar: ' + (err.message || ''))
     }
-    fetchIpads()
   }
 
   const ipadsFiltrados = ipads.filter(i => {

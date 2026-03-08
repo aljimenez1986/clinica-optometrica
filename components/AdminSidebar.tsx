@@ -1,26 +1,35 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useSession } from 'next-auth/react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import OptopadLogo from './OptopadLogo'
+import { isStandaloneMode } from '@/lib/use-standalone'
 
 const RUTAS_SOLO_ADMIN = ['/admin/dashboard', '/admin/usuarios', '/admin/ipads', '/admin/config']
 
 export default function AdminSidebar() {
   const pathname = usePathname()
-  const [esAdmin, setEsAdmin] = useState<boolean | null>(null)
+  const { data: session } = useSession()
+  const [supabaseAdmin, setSupabaseAdmin] = useState<boolean | null>(null)
+
+  const esAdmin = isStandaloneMode
+    ? (session?.user as any)?.role === 'administrador'
+    : supabaseAdmin
 
   useEffect(() => {
-    const cargarRol = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      const { data } = await supabase.from('app_usuario').select('role').eq('auth_user_id', user.id).single()
-      setEsAdmin(data?.role === 'administrador')
+    if (!isStandaloneMode) {
+      const cargarRol = async () => {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+        const { data } = await supabase.from('app_usuario').select('role').eq('auth_user_id', user.id).single()
+        setSupabaseAdmin(data?.role === 'administrador')
+      }
+      cargarRol()
     }
-    cargarRol()
-  }, [])
+  }, [isStandaloneMode])
 
   const menuItems = [
     {
@@ -78,7 +87,7 @@ export default function AdminSidebar() {
         </svg>
       )
     }
-  ].filter(item => esAdmin === null || esAdmin || !RUTAS_SOLO_ADMIN.includes(item.href))
+  ].filter(item => esAdmin == null || esAdmin || !RUTAS_SOLO_ADMIN.includes(item.href))
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 min-h-screen flex flex-col">

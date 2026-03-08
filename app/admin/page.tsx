@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, FormEvent } from 'react'
+import { signIn } from 'next-auth/react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import OptopadLogo from '@/components/OptopadLogo'
+import { isStandaloneMode } from '@/lib/use-standalone'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +20,20 @@ export default function AdminLogin() {
     e.preventDefault()
     setError('')
     setLoading(true)
+
+    if (isStandaloneMode) {
+      const res = await signIn('credentials', { email, password, redirect: false })
+      if (res?.error) {
+        setError(res.error)
+        setLoading(false)
+      } else if (res?.ok) {
+        router.push('/admin')
+        router.refresh()
+      } else {
+        setLoading(false)
+      }
+      return
+    }
 
     const { data, error: loginError } = await supabase.auth.signInWithPassword({ email, password })
     

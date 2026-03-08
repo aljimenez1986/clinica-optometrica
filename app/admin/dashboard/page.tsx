@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/optopad-api'
+import { isStandaloneMode } from '@/lib/use-standalone'
 import {
   BarChart,
   Bar,
@@ -35,45 +37,56 @@ export default function DashboardPage() {
       const hace30 = new Date()
       hace30.setDate(hace30.getDate() - 30)
       const iso30 = hace30.toISOString()
-
-      const [
-        { count: cP },
-        { count: cR },
-        { count: cI },
-        { count: cN30 },
-        { data: resultados }
-      ] = await Promise.all([
-        supabase.from('pacientes').select('*', { count: 'exact', head: true }),
-        supabase.from('test_resultados').select('*', { count: 'exact', head: true }),
-        supabase.from('ipads').select('*', { count: 'exact', head: true }),
-        supabase.from('pacientes').select('*', { count: 'exact', head: true }).gte('created_at', iso30),
-        supabase
-          .from('test_resultados')
-          .select('id, fecha_realizacion, test_config_id')
-          .order('fecha_realizacion', { ascending: false })
-          .limit(500)
-      ])
-
-      setCountPacientes(cP ?? 0)
-      setCountResultados(cR ?? 0)
-      setCountIpads(cI ?? 0)
-      setPacientesNuevos30(cN30 ?? 0)
-      setResultadosRecientes(resultados ?? [])
-
-      const configIds = [...new Set((resultados ?? []).map((r: any) => r.test_config_id).filter(Boolean))]
-      if (configIds.length > 0) {
-        const { data: configData } = await supabase
-          .from('test_configs')
-          .select('id, tipo_test')
-          .in('id', configIds)
-        const map: Record<string, { tipo_test: string }> = {}
-        ;(configData ?? []).forEach((c: any) => { map[c.id] = { tipo_test: c.tipo_test || 'Sin tipo' } })
-        setConfigs(map)
+      try {
+        if (isStandaloneMode) {
+          const [pacientes, resultados, ipads] = await Promise.all([
+            api.pacientes.list(),
+            api.testResultados.list(undefined, { all: true }),
+            api.ipads.list()
+          ])
+          const pacs = Array.isArray(pacientes) ? pacientes : []
+          const res = Array.isArray(resultados) ? resultados : []
+          const ips = Array.isArray(ipads) ? ipads : []
+          setCountPacientes(pacs.length)
+          setCountResultados(res.length)
+          setCountIpads(ips.length)
+          setPacientesNuevos30(pacs.filter((p: any) => p.created_at >= iso30).length)
+          setResultadosRecientes(res)
+          const configIds = [...new Set(res.map((r: any) => r.test_config_id).filter(Boolean))]
+          if (configIds.length > 0) {
+            const configsList = await api.testConfigs.list()
+            const map: Record<string, { tipo_test: string }> = {}
+            ;(Array.isArray(configsList) ? configsList : []).filter((c: any) => configIds.includes(c.id)).forEach((c: any) => { map[c.id] = { tipo_test: c.tipo_test || 'Sin tipo' } })
+            setConfigs(map)
+          }
+        } else {
+          const [{ count: cP }, { count: cR }, { count: cI }, { count: cN30 }, { data: resultados }] = await Promise.all([
+            supabase.from('pacientes').select('*', { count: 'exact', head: true }),
+            supabase.from('test_resultados').select('*', { count: 'exact', head: true }),
+            supabase.from('ipads').select('*', { count: 'exact', head: true }),
+            supabase.from('pacientes').select('*', { count: 'exact', head: true }).gte('created_at', iso30),
+            supabase.from('test_resultados').select('id, fecha_realizacion, test_config_id').order('fecha_realizacion', { ascending: false }).limit(500)
+          ])
+          setCountPacientes(cP ?? 0)
+          setCountResultados(cR ?? 0)
+          setCountIpads(cI ?? 0)
+          setPacientesNuevos30(cN30 ?? 0)
+          setResultadosRecientes(resultados ?? [])
+          const configIds = [...new Set((resultados ?? []).map((r: any) => r.test_config_id).filter(Boolean))]
+          if (configIds.length > 0) {
+            const { data: configData } = await supabase.from('test_configs').select('id, tipo_test').in('id', configIds)
+            const map: Record<string, { tipo_test: string }> = {}
+            ;(configData ?? []).forEach((c: any) => { map[c.id] = { tipo_test: c.tipo_test || 'Sin tipo' } })
+            setConfigs(map)
+          }
+        }
+      } catch (e) {
+        console.error('Error cargando dashboard:', e)
       }
       setLoading(false)
     }
     load()
-  }, [])
+  }, [isStandaloneMode])
 
   const testsPorDia = useMemo(() => {
     const hoy = new Date()

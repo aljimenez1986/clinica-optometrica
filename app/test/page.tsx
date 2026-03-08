@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/optopad-api'
+import { isStandaloneMode } from '@/lib/use-standalone'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,41 +31,63 @@ function EjecucionContent() {
 
   useEffect(() => {
     async function load() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      const { data: perfil } = await supabase.from('app_usuario').select('id, role').eq('auth_user_id', user.id).single()
-      const admin = perfil?.role === 'administrador'
-
-      let ipadIds: Set<string> | null = null
-      if (!admin && perfil?.id) {
-        const { data: icData } = await supabase.from('ipad_clinico').select('ipad_id').eq('usuario_id', perfil.id)
-        ipadIds = new Set((icData ?? []).map((r: { ipad_id: string }) => r.ipad_id))
-      }
-
-      const [pacRes, ipadRes] = await Promise.all([
-        supabase.from('pacientes').select('*').order('nombre').order('created_at', { ascending: false }),
-        supabase.from('ipads').select('*').order('nombre')
-      ])
-      let listaPacientes = pacRes.data ?? []
-      let listaIpads = ipadRes.data ?? []
-
-      if (!admin && perfil?.id) {
-        listaPacientes = listaPacientes.filter((p: any) => p.registrado_por === perfil.id)
-      }
-      if (!admin && ipadIds) {
-        listaIpads = listaIpads.filter((i: any) => ipadIds!.has(i.id))
-      }
-
-      setPacientes(listaPacientes)
-      setIpads(listaIpads)
-      if (pacienteFromUrl && !aplicadoPacienteUrl.current && listaPacientes.some((p: any) => p.id === pacienteFromUrl)) {
-        setPacienteId(pacienteFromUrl)
-        aplicadoPacienteUrl.current = true
+      try {
+        if (isStandaloneMode) {
+          const sess = await fetch('/api/auth/session', { credentials: 'include' }).then(r => r.json()).catch(() => null)
+          if (!sess?.user) return
+          const admin = (sess.user as any)?.role === 'administrador'
+          const userId = (sess.user as any)?.id
+          const [listaPacientes, listaIpads] = await Promise.all([
+            api.pacientes.list(),
+            api.ipads.list()
+          ])
+          let pacs = Array.isArray(listaPacientes) ? listaPacientes : []
+          let ips = Array.isArray(listaIpads) ? listaIpads : []
+          if (!admin && userId) {
+            pacs = pacs.filter((p: any) => p.registrado_por === userId)
+            ips = ips.filter((i: any) => (i.ipad_clinico || []).some((ic: any) => ic.usuario_id === userId))
+          }
+          setPacientes(pacs)
+          setIpads(ips)
+          if (pacienteFromUrl && !aplicadoPacienteUrl.current && pacs.some((p: any) => p.id === pacienteFromUrl)) {
+            setPacienteId(pacienteFromUrl)
+            aplicadoPacienteUrl.current = true
+          }
+        } else {
+          const { data: { user } } = await supabase.auth.getUser()
+          if (!user) return
+          const { data: perfil } = await supabase.from('app_usuario').select('id, role').eq('auth_user_id', user.id).single()
+          const admin = perfil?.role === 'administrador'
+          let ipadIds: Set<string> | null = null
+          if (!admin && perfil?.id) {
+            const { data: icData } = await supabase.from('ipad_clinico').select('ipad_id').eq('usuario_id', perfil.id)
+            ipadIds = new Set((icData ?? []).map((r: { ipad_id: string }) => r.ipad_id))
+          }
+          const [pacRes, ipadRes] = await Promise.all([
+            supabase.from('pacientes').select('*').order('nombre').order('created_at', { ascending: false }),
+            supabase.from('ipads').select('*').order('nombre')
+          ])
+          let listaPacientes = pacRes.data ?? []
+          let listaIpads = ipadRes.data ?? []
+          if (!admin && perfil?.id) {
+            listaPacientes = listaPacientes.filter((p: any) => p.registrado_por === perfil.id)
+          }
+          if (!admin && ipadIds) {
+            listaIpads = listaIpads.filter((i: any) => ipadIds!.has(i.id))
+          }
+          setPacientes(listaPacientes)
+          setIpads(listaIpads)
+          if (pacienteFromUrl && !aplicadoPacienteUrl.current && listaPacientes.some((p: any) => p.id === pacienteFromUrl)) {
+            setPacienteId(pacienteFromUrl)
+            aplicadoPacienteUrl.current = true
+          }
+        }
+      } catch (e) {
+        console.error('Error cargando datos:', e)
       }
     }
     load()
-  }, [pacienteFromUrl])
+  }, [pacienteFromUrl, isStandaloneMode])
 
   const paciente = pacientes.find(p => p.id === pacienteId)
   const ipad = ipads.find(i => i.id === ipadId)

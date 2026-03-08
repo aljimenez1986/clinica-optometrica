@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/optopad-api'
+import { isStandaloneMode } from '@/lib/use-standalone'
 
 const FILAS_OPTOPAD_COLOR = ['P', 'D', 'T'] as const
 const PASOS_POR_FILA = 10
@@ -77,62 +79,94 @@ function RunTestContent() {
       return
     }
     async function load() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setError('Sesión no válida.')
-        setLoading(false)
-        return
-      }
-      const { data: perfil } = await supabase.from('app_usuario').select('id, role').eq('auth_user_id', user.id).single()
-      const esAdmin = perfil?.role === 'administrador'
-      if (!esAdmin && perfil?.id) {
-        const [pacRes, icRes] = await Promise.all([
-          supabase.from('pacientes').select('registrado_por').eq('id', pacienteId).single(),
-          supabase.from('ipad_clinico').select('ipad_id').eq('usuario_id', perfil.id).eq('ipad_id', ipadId).maybeSingle()
-        ])
-        const pacienteOk = pacRes.data?.registrado_por === perfil.id
-        const ipadOk = icRes.data != null
-        if (!pacienteOk || !ipadOk) {
-          setError('No tiene permiso para ejecutar tests con este paciente o iPad.')
-          setLoading(false)
-          return
+      try {
+        if (isStandaloneMode) {
+          const sess = await fetch('/api/auth/session', { credentials: 'include' }).then(r => r.json()).catch(() => null)
+          if (!sess?.user) {
+            setError('Sesión no válida.')
+            setLoading(false)
+            return
+          }
+          const userId = (sess.user as any).id
+          const esAdmin = (sess.user as any).role === 'administrador'
+          if (!esAdmin) {
+            const pacientes = await api.pacientes.list()
+            const pac = pacientes.find((p: any) => p.id === pacienteId)
+            if (pac?.registrado_por !== userId) {
+              setError('No tiene permiso para ejecutar tests con este paciente.')
+              setLoading(false)
+              return
+            }
+            const ipadsList = await api.ipads.list()
+            const ipad = ipadsList.find((i: any) => i.id === ipadId)
+            const asignado = (ipad?.ipad_clinico || []).some((ic: any) => ic.usuario_id === userId)
+            if (!asignado) {
+              setError('No tiene permiso para usar este iPad.')
+              setLoading(false)
+              return
+            }
+          }
+          const configData = await api.testConfigs.get(ipadId!, 'optopad_color')
+          if (!configData) {
+            setError('No hay configuración de Optopad Color para este iPad. Configúrela en Panel Admin.')
+            setLoading(false)
+            return
+          }
+          setTestConfigId(configData.id)
+          const pasosData = await api.testPasos.list(configData.id)
+          const list = (pasosData || []).map((p: any) => ({
+            ...p,
+            valores_correctos: Array.isArray(p.valores_correctos) ? p.valores_correctos : (typeof p.valores_correctos === 'string' ? (() => { try { return JSON.parse(p.valores_correctos) } catch { return [] } })() : [])
+          }))
+          setPasos(list)
+        } else {
+          const { data: { user } } = await supabase.auth.getUser()
+          if (!user) {
+            setError('Sesión no válida.')
+            setLoading(false)
+            return
+          }
+          const { data: perfil } = await supabase.from('app_usuario').select('id, role').eq('auth_user_id', user.id).single()
+          const esAdmin = perfil?.role === 'administrador'
+          if (!esAdmin && perfil?.id) {
+            const [pacRes, icRes] = await Promise.all([
+              supabase.from('pacientes').select('registrado_por').eq('id', pacienteId).single(),
+              supabase.from('ipad_clinico').select('ipad_id').eq('usuario_id', perfil.id).eq('ipad_id', ipadId).maybeSingle()
+            ])
+            const pacienteOk = pacRes.data?.registrado_por === perfil.id
+            const ipadOk = icRes.data != null
+            if (!pacienteOk || !ipadOk) {
+              setError('No tiene permiso para ejecutar tests con este paciente o iPad.')
+              setLoading(false)
+              return
+            }
+          }
+          const { data: configData, error: configError } = await supabase.from('test_configs').select('id').eq('ipad_id', ipadId).eq('tipo_test', 'optopad_color').single()
+          if (configError || !configData) {
+            setError('No hay configuración de Optopad Color para este iPad. Configúrela en Panel Admin.')
+            setLoading(false)
+            return
+          }
+          setTestConfigId(configData.id)
+          const { data: pasosData, error: pasosError } = await supabase.from('test_pasos').select('id, orden, valores_correctos, valor_decimal').eq('test_config_id', configData.id).order('orden', { ascending: true })
+          if (pasosError) {
+            setError('Error al cargar los pasos del test.')
+            setLoading(false)
+            return
+          }
+          const list = (pasosData || []).map((p: any) => ({
+            ...p,
+            valores_correctos: Array.isArray(p.valores_correctos) ? p.valores_correctos : (typeof p.valores_correctos === 'string' ? (() => { try { return JSON.parse(p.valores_correctos) } catch { return [] } })() : [])
+          }))
+          setPasos(list)
         }
+      } catch (e) {
+        setError('Error al cargar: ' + (e as Error).message)
       }
-
-      const { data: configData, error: configError } = await supabase
-        .from('test_configs')
-        .select('id')
-        .eq('ipad_id', ipadId)
-        .eq('tipo_test', 'optopad_color')
-        .single()
-
-      if (configError || !configData) {
-        setError('No hay configuración de Optopad Color para este iPad. Configúrela en Panel Admin.')
-        setLoading(false)
-        return
-      }
-      setTestConfigId(configData.id)
-
-      const { data: pasosData, error: pasosError } = await supabase
-        .from('test_pasos')
-        .select('id, orden, valores_correctos, valor_decimal')
-        .eq('test_config_id', configData.id)
-        .order('orden', { ascending: true })
-
-      if (pasosError) {
-        setError('Error al cargar los pasos del test.')
-        setLoading(false)
-        return
-      }
-      const list = (pasosData || []).map((p: any) => ({
-        ...p,
-        valores_correctos: Array.isArray(p.valores_correctos) ? p.valores_correctos : (typeof p.valores_correctos === 'string' ? (() => { try { return JSON.parse(p.valores_correctos) } catch { return [] } })() : [])
-      }))
-      setPasos(list)
       setLoading(false)
     }
     load()
-  }, [pacienteId, ipadId, testParam])
+  }, [pacienteId, ipadId, testParam, isStandaloneMode])
 
   const salirSinGuardar = useCallback(() => {
     setShowSalirConfirm(false)
@@ -205,16 +239,28 @@ function RunTestContent() {
         resultado_d_valor: rD ?? null,
         resultado_t_valor: rT ?? null
       }
-      const { error: insertError } = await supabase.from('test_resultados').insert([{
-        paciente_id: pacienteId,
-        test_config_id: testConfigId,
-        paso_actual: 0,
-        datos_respuesta: datosRespuesta
-      }])
-      if (!insertError) setResultadoGuardado(true)
+      try {
+        if (isStandaloneMode) {
+          await api.testResultados.create({
+            paciente_id: pacienteId,
+            test_config_id: testConfigId,
+            paso_actual: 0,
+            datos_respuesta: datosRespuesta
+          })
+        } else {
+          const { error: insertError } = await supabase.from('test_resultados').insert([{
+            paciente_id: pacienteId,
+            test_config_id: testConfigId,
+            paso_actual: 0,
+            datos_respuesta: datosRespuesta
+          }])
+          if (insertError) throw insertError
+        }
+        setResultadoGuardado(true)
+      } catch (_) {}
     }
     guardar()
-  }, [testFinished, testConfigId, pacienteId, lastCorrect, resultadoGuardado, pasos])
+  }, [testFinished, testConfigId, pacienteId, lastCorrect, resultadoGuardado, pasos, isStandaloneMode])
 
   const backHref = pacienteId ? `/test?paciente=${encodeURIComponent(pacienteId)}` : '/test'
   const BackLink = () => (

@@ -2,13 +2,17 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
+import { useSession } from 'next-auth/react'
 import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/optopad-api'
+import { isStandaloneMode } from '@/lib/use-standalone'
 
 export const dynamic = 'force-dynamic'
 
 type OrdenPaciente = 'id_paciente' | 'nombre' | 'genero' | 'fecha_nacimiento' | 'created_at' | 'telefono' | 'email' | 'graduacion_od' | 'graduacion_oi' | ''
 
 export default function PacientesPage() {
+  const { data: session } = useSession()
   const [pacientes, setPacientes] = useState<any[]>([])
   const [miUsuarioId, setMiUsuarioId] = useState<string | null>(null)
   const [esAdmin, setEsAdmin] = useState(false)
@@ -35,54 +39,68 @@ export default function PacientesPage() {
 
   useEffect(() => {
     const cargarUsuario = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data } = await supabase.from('app_usuario').select('id, role').eq('auth_user_id', user.id).single()
-        setMiUsuarioId(data?.id ?? null)
-        setEsAdmin(data?.role === 'administrador')
+      if (isStandaloneMode && session?.user) {
+        setMiUsuarioId((session.user as any).id)
+        setEsAdmin((session.user as any).role === 'administrador')
+      } else if (!isStandaloneMode) {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const { data } = await supabase.from('app_usuario').select('id, role').eq('auth_user_id', user.id).single()
+          setMiUsuarioId(data?.id ?? null)
+          setEsAdmin(data?.role === 'administrador')
+        }
       }
     }
     cargarUsuario()
     fetchPacientes()
-  }, [])
+  }, [isStandaloneMode, session])
 
   useEffect(() => {
     async function fetchPacientesConResultados() {
-      const { data, error } = await supabase
-        .from('test_resultados')
-        .select('paciente_id')
-      if (error) return
-      const ids = new Set<string>((data || []).map((r: { paciente_id: string }) => r.paciente_id))
-      setPacientesConResultados(ids)
+      try {
+        if (isStandaloneMode) {
+          const data = await api.testResultados.list()
+          setPacientesConResultados(new Set(Array.isArray(data) ? data : []))
+        } else {
+          const { data, error } = await supabase.from('test_resultados').select('paciente_id')
+          if (error) return
+          setPacientesConResultados(new Set((data || []).map((r: { paciente_id: string }) => r.paciente_id)))
+        }
+      } catch (_) {}
     }
     fetchPacientesConResultados()
-  }, [])
+  }, [isStandaloneMode])
 
   async function fetchPacientes() {
-    const { data, error } = await supabase
-      .from('pacientes')
-      .select('*')
-      .order('created_at', { ascending: false })
-    
-    if (error) console.error('Error cargando pacientes:', error.message)
-    else setPacientes(data || [])
+    try {
+      if (isStandaloneMode) {
+        const data = await api.pacientes.list()
+        setPacientes(Array.isArray(data) ? data : [])
+      } else {
+        const { data, error } = await supabase.from('pacientes').select('*').order('created_at', { ascending: false })
+        if (error) console.error('Error cargando pacientes:', error.message)
+        else setPacientes(data || [])
+      }
+    } catch (e) {
+      console.error('Error cargando pacientes:', e)
+    }
   }
 
-  async function verificarIdPaciente(idPaciente: string): Promise<boolean> {
+  async function verificarIdPaciente(idPaciente: string, excludeId?: string): Promise<boolean> {
     if (!idPaciente.trim()) return false
-    
-    const { data, error } = await supabase
-      .from('pacientes')
-      .select('id_paciente')
-      .eq('id_paciente', idPaciente.trim())
-      .limit(1)
-    
-    if (error) {
-      console.error('Error verificando ID:', error.message)
+    try {
+      if (isStandaloneMode) {
+        const { exists } = await api.pacientes.checkId(idPaciente, excludeId)
+        return exists
+      }
+      let query = supabase.from('pacientes').select('id_paciente').eq('id_paciente', idPaciente.trim()).limit(1)
+      if (excludeId) query = query.neq('id', excludeId)
+      const { data, error } = await query
+      if (error) return false
+      return (data && data.length > 0)
+    } catch {
       return false
     }
-    
-    return (data && data.length > 0)
   }
 
   function resetearFormulario() {
@@ -133,7 +151,7 @@ export default function PacientesPage() {
       const idCambio = pacienteOriginal?.id_paciente !== form.id_paciente
       
       if (idCambio) {
-        const idExiste = await verificarIdPaciente(form.id_paciente)
+        const idExiste = await verificarIdPaciente(form.id_paciente, editandoId)
         if (idExiste) {
           setIdDuplicado(true)
           alert("Error: El ID del paciente '" + form.id_paciente + "' ya existe. Por favor, use un ID diferente.")
@@ -152,11 +170,18 @@ export default function PacientesPage() {
     setIdDuplicado(false)
     let error
 
-    if (editandoId) {
-      const { error: updateError } = await supabase
-        .from('pacientes')
-        .update(form)
-        .eq('id', editandoId)
+    if (isStandaloneMode) {
+      try {
+        if (editandoId) {
+          await api.pacientes.update(editandoId, form)
+        } else {
+          await api.pacientes.create({ ...form, registrado_por: miUsuarioId })
+        }
+      } catch (e: any) {
+        error = { message: e.message } as any
+      }
+    } else if (editandoId) {
+      const { error: updateError } = await supabase.from('pacientes').update(form).eq('id', editandoId)
       error = updateError
     } else {
       const payload = { ...form, registrado_por: miUsuarioId }
@@ -190,7 +215,7 @@ export default function PacientesPage() {
     
     if (value.trim().length > 0) {
       setVerificandoId(true)
-      const existe = await verificarIdPaciente(value)
+      const existe = await verificarIdPaciente(value, editandoId || undefined)
       setIdDuplicado(existe)
       setVerificandoId(false)
     }
@@ -250,8 +275,16 @@ export default function PacientesPage() {
 
   async function eliminarPaciente(id: string) {
     if (confirm("¿Seguro que quieres eliminar este paciente?")) {
-      await supabase.from('pacientes').delete().eq('id', id)
-      fetchPacientes()
+      try {
+        if (isStandaloneMode) {
+          await api.pacientes.delete(id)
+        } else {
+          await supabase.from('pacientes').delete().eq('id', id)
+        }
+        fetchPacientes()
+      } catch (e) {
+        console.error(e)
+      }
     }
   }
 
