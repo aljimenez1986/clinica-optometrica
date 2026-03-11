@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -30,21 +30,22 @@ function calcularResultadoFila(pasosList: PasoConfig[], filaIdx: number, ultimoP
     const n = typeof v === 'number' ? v : parseFloat(String(v))
     return isNaN(n) ? null : n
   }
-  const P1 = getVal(1), P2 = getVal(2), P8 = getVal(8), P9 = getVal(9)
-  if (ultimoPaso === 0) {
-    if (P1 != null && P2 != null && P2 !== 0) return (P1 * P1) / P2
-    return null
+  const P1 = getVal(1), P2 = getVal(2), P3 = getVal(3), P4 = getVal(4)
+  const P5 = getVal(5), P6 = getVal(6), P7 = getVal(7), P8 = getVal(8), P9 = getVal(9)
+  switch (ultimoPaso) {
+    case 0: return (P1 != null && P2 != null && P2 !== 0) ? (P1 * P1) / P2 : null
+    case 1: return (P1 != null && P2 != null) ? (P1 + P2) / 2 : null
+    case 2: return (P2 != null && P3 != null) ? (P2 + P3) / 2 : null
+    case 3: return (P3 != null && P4 != null) ? (P3 + P4) / 2 : null
+    case 4: return (P4 != null && P5 != null) ? (P4 + P5) / 2 : null
+    case 5: return (P5 != null && P6 != null) ? (P5 + P6) / 2 : null
+    case 6: return (P6 != null && P7 != null) ? (P6 + P7) / 2 : null
+    case 7: return (P7 != null && P8 != null) ? (P7 + P8) / 2 : null
+    case 8: return (P8 != null && P9 != null) ? (P8 + P9) / 2 : null
+    case 9:
+    case 10: return (P9 != null && P8 != null && P8 !== 0) ? (P9 * P9) / P8 : null
+    default: return null
   }
-  if (ultimoPaso >= 8 && ultimoPaso <= 9) {
-    if (P9 != null && P8 != null && P8 !== 0) return (P9 * P9) / P8
-    return null
-  }
-  if (ultimoPaso >= 1 && ultimoPaso <= 7) {
-    const Pk = getVal(ultimoPaso + 1)
-    const Pk1 = getVal(ultimoPaso + 2)
-    if (Pk != null && Pk1 != null) return (Pk + Pk1) / 2
-  }
-  return null
 }
 
 function RunTestContent() {
@@ -65,8 +66,21 @@ function RunTestContent() {
   const [testFinished, setTestFinished] = useState(false)
   const [resultadoGuardado, setResultadoGuardado] = useState(false)
   const [showSalirConfirm, setShowSalirConfirm] = useState(false)
+  const [showCambioFila, setShowCambioFila] = useState<string | null>(null)
+  const pendingNextFilaRef = useRef<number | null>(null)
 
   const fila = FILAS_OPTOPAD_COLOR[filaIndex]
+
+  useEffect(() => {
+    if (showCambioFila == null || pendingNextFilaRef.current == null) return
+    const t = setTimeout(() => {
+      setFilaIndex(pendingNextFilaRef.current!)
+      setPasoIndex(0)
+      setShowCambioFila(null)
+      pendingNextFilaRef.current = null
+    }, 2000)
+    return () => clearTimeout(t)
+  }, [showCambioFila])
   const pasoNum = pasoIndex + 1
   const orden = filaIndex * PASOS_POR_FILA + pasoIndex + 1
   const pasoConfig = pasos.find(p => p.orden === orden)
@@ -189,8 +203,9 @@ function RunTestContent() {
         setPasoIndex(p => p + 1)
       } else {
         if (filaIndex < FILAS_OPTOPAD_COLOR.length - 1) {
-          setFilaIndex(i => i + 1)
-          setPasoIndex(0)
+          const nextFila = FILAS_OPTOPAD_COLOR[filaIndex + 1]
+          pendingNextFilaRef.current = filaIndex + 1
+          setShowCambioFila(nextFila)
         } else {
           setTestFinished(true)
         }
@@ -201,8 +216,9 @@ function RunTestContent() {
       if (nextFailures >= 2) {
         setConsecutiveFailures(0)
         if (filaIndex < FILAS_OPTOPAD_COLOR.length - 1) {
-          setFilaIndex(i => i + 1)
-          setPasoIndex(0)
+          const nextFila = FILAS_OPTOPAD_COLOR[filaIndex + 1]
+          pendingNextFilaRef.current = filaIndex + 1
+          setShowCambioFila(nextFila)
         } else {
           setTestFinished(true)
         }
@@ -212,8 +228,9 @@ function RunTestContent() {
         } else {
           setConsecutiveFailures(0)
           if (filaIndex < FILAS_OPTOPAD_COLOR.length - 1) {
-            setFilaIndex(i => i + 1)
-            setPasoIndex(0)
+            const nextFila = FILAS_OPTOPAD_COLOR[filaIndex + 1]
+            pendingNextFilaRef.current = filaIndex + 1
+            setShowCambioFila(nextFila)
           } else {
             setTestFinished(true)
           }
@@ -225,9 +242,9 @@ function RunTestContent() {
   useEffect(() => {
     if (!testFinished || !testConfigId || !pacienteId || resultadoGuardado) return
     const guardar = async () => {
-      const ultimoP = lastCorrect[0] >= 1 ? lastCorrect[0] - 1 : -1
-      const ultimoD = lastCorrect[1] >= 1 ? lastCorrect[1] - 1 : -1
-      const ultimoT = lastCorrect[2] >= 1 ? lastCorrect[2] - 1 : -1
+      const ultimoP = lastCorrect[0] >= 0 ? lastCorrect[0] : -1
+      const ultimoD = lastCorrect[1] >= 0 ? lastCorrect[1] : -1
+      const ultimoT = lastCorrect[2] >= 0 ? lastCorrect[2] : -1
       const rP = calcularResultadoFila(pasos, 0, ultimoP)
       const rD = calcularResultadoFila(pasos, 1, ultimoD)
       const rT = calcularResultadoFila(pasos, 2, ultimoT)
@@ -305,9 +322,9 @@ function RunTestContent() {
   }
 
   if (testFinished) {
-    const ultimoP = lastCorrect[0] >= 1 ? lastCorrect[0] - 1 : -1
-    const ultimoD = lastCorrect[1] >= 1 ? lastCorrect[1] - 1 : -1
-    const ultimoT = lastCorrect[2] >= 1 ? lastCorrect[2] - 1 : -1
+    const ultimoP = lastCorrect[0] >= 0 ? lastCorrect[0] : -1
+    const ultimoD = lastCorrect[1] >= 0 ? lastCorrect[1] : -1
+    const ultimoT = lastCorrect[2] >= 0 ? lastCorrect[2] : -1
     const rP = calcularResultadoFila(pasos, 0, ultimoP)
     const rD = calcularResultadoFila(pasos, 1, ultimoD)
     const rT = calcularResultadoFila(pasos, 2, ultimoT)
@@ -325,18 +342,18 @@ function RunTestContent() {
             <dl className="grid grid-cols-3 gap-4 mb-6">
               <div className="bg-gray-50 rounded-lg p-4 text-center">
                 <dt className="text-sm font-medium text-gray-500">Fila P</dt>
-                <dd className="text-2xl font-bold text-[#356375] mt-1">{lastCorrect[0] >= 1 ? lastCorrect[0] : '0'}</dd>
-                {rP != null && <dd className="text-sm text-gray-600 mt-1">{rP.toFixed(6)}</dd>}
+                <dd className="text-2xl font-bold text-[#356375] mt-1">{lastCorrect[0]}</dd>
+                <dd className="text-sm text-gray-600 mt-1">{(rP ?? 0).toFixed(6)}</dd>
               </div>
               <div className="bg-gray-50 rounded-lg p-4 text-center">
                 <dt className="text-sm font-medium text-gray-500">Fila D</dt>
-                <dd className="text-2xl font-bold text-[#356375] mt-1">{lastCorrect[1] >= 1 ? lastCorrect[1] : '0'}</dd>
-                {rD != null && <dd className="text-sm text-gray-600 mt-1">{rD.toFixed(6)}</dd>}
+                <dd className="text-2xl font-bold text-[#356375] mt-1">{lastCorrect[1]}</dd>
+                <dd className="text-sm text-gray-600 mt-1">{(rD ?? 0).toFixed(6)}</dd>
               </div>
               <div className="bg-gray-50 rounded-lg p-4 text-center">
                 <dt className="text-sm font-medium text-gray-500">Fila T</dt>
-                <dd className="text-2xl font-bold text-[#356375] mt-1">{lastCorrect[2] >= 1 ? lastCorrect[2] : '0'}</dd>
-                {rT != null && <dd className="text-sm text-gray-600 mt-1">{rT.toFixed(6)}</dd>}
+                <dd className="text-2xl font-bold text-[#356375] mt-1">{lastCorrect[2]}</dd>
+                <dd className="text-sm text-gray-600 mt-1">{(rT ?? 0).toFixed(6)}</dd>
               </div>
             </dl>
             <p className="text-sm text-gray-500 mb-6">{resultadoGuardado ? 'Resultado guardado correctamente.' : 'Guardando resultado...'}</p>
@@ -382,6 +399,14 @@ function RunTestContent() {
           </div>
         </div>
       </div>
+      {showCambioFila && (
+        <div className="fixed inset-0 bg-amber-500/20 flex items-center justify-center p-4 z-50" aria-live="polite">
+          <div className="bg-amber-50 border-2 border-amber-400 rounded-xl shadow-xl max-w-sm w-full p-6 text-center">
+            <p className="text-amber-800 font-semibold text-lg mb-1">Cambio de fila</p>
+            <p className="text-amber-900 font-medium">Pasando a fila <span className="font-bold">{showCambioFila}</span></p>
+          </div>
+        </div>
+      )}
       {showSalirConfirm && (
         <div className="fixed inset-0 bg-gray-600/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl border border-gray-200 max-w-md w-full p-6">

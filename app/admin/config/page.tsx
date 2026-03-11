@@ -31,6 +31,7 @@ interface TestPaso {
 const FILAS_OPTOPAD_COLOR = ['P', 'D', 'T'] as const
 const PASOS_POR_FILA = 10
 const OPCIONES_DIRECCION = ['arriba', 'abajo', 'izquierda', 'derecha'] as const
+const ORIENTACION_A_DIRECCION: Record<number, string> = { 0: 'derecha', 90: 'arriba', 180: 'izquierda', 270: 'abajo' }
 const TESTS_PENDIENTES: TipoTest[] = ['rejilla_amsler', 'agudeza_visual', 'optopad_csf']
 
 function ordenFromFilaYPaso(fila: string, pasoNum: number): number {
@@ -338,22 +339,35 @@ export default function TestsPage() {
     } catch (_) {}
   }
 
-  function parseArchivoDecimalesOptopadColor(texto: string): (string | null)[][] | null {
-    const lineas = texto.trim().split(/\r?\n/).filter(l => l.trim())
+  function parseArchivoOptopadColor(texto: string): { orientacion: string; decimal: string | null }[][] | null {
+    const lineas = texto.trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim())
     if (lineas.length !== 10) return null
-    const resultado: (string | null)[][] = []
+    const resultado: { orientacion: string; decimal: string | null }[][] = []
     for (let i = 0; i < 10; i++) {
-      const partes = lineas[i].split(',').map(p => p.trim())
-      if (partes.length !== 3) return null
-      resultado.push(partes.map(p => p ? parseValorDecimal(p) : null))
+      const celdas = lineas[i].split(',').map(c => c.trim())
+      if (celdas.length !== 3) return null
+      const fila: { orientacion: string; decimal: string | null }[] = []
+      for (const celda of celdas) {
+        const espacioIdx = celda.indexOf(' ')
+        if (espacioIdx <= 0) return null
+        const orientacionStr = celda.slice(0, espacioIdx).trim()
+        const decimalStr = celda.slice(espacioIdx + 1).trim()
+        if (!/^\d+$/.test(orientacionStr)) return null
+        const orientacionNum = parseInt(orientacionStr, 10)
+        const direccion = ORIENTACION_A_DIRECCION[orientacionNum]
+        if (!direccion) return null
+        const decimal = parseValorDecimal(decimalStr)
+        fila.push({ orientacion: direccion, decimal })
+      }
+      resultado.push(fila)
     }
     return resultado
   }
 
   async function importarDecimalesDesdeArchivoOptopadColor() {
-    const datos = parseArchivoDecimalesOptopadColor(archivoTextoOptopad)
+    const datos = parseArchivoOptopadColor(archivoTextoOptopad)
     if (!datos) {
-      alert('Formato inválido. 10 filas, 3 decimales por fila (P,D,T). Ejemplo:\n0.5,-0.5,2.5')
+      alert('Formato inválido. 10 filas, 3 celdas por fila (P,D,T). Cada celda: orientación espacio decimal. Orientación: 0=derecha, 90=arriba, 180=izquierda, 270=abajo. Ejemplo:\n90 0.5, 0 -0.5, 270 2.5')
       return
     }
     if (!ipadSeleccionado) return
@@ -368,22 +382,23 @@ export default function TestsPage() {
         const idx = pasoNum - 1
         for (let f = 0; f < FILAS_OPTOPAD_COLOR.length; f++) {
           const fila = FILAS_OPTOPAD_COLOR[f]
-          const decimal = datos[idx][f]
+          const { orientacion, decimal } = datos[idx][f]
           const orden = ordenFromFilaYPaso(fila, pasoNum)
           const paso = pasos.find(p => p.orden === orden)
+          const payload = { valores_correctos: [orientacion], valor_decimal: decimal }
           if (paso?.id) {
-            if (isStandaloneMode) await api.testPasos.update(paso.id, { valor_decimal: decimal })
-            else await supabase.from('test_pasos').update({ valor_decimal: decimal }).eq('id', paso.id)
-          } else if (decimal != null) {
-            const payload = { test_config_id: config.id, orden, nombre_archivo: null, ruta_archivo: null, url_publica: null, descripcion: null, valores_correctos: ['arriba'], valor_decimal: decimal }
-            if (isStandaloneMode) await api.testPasos.create(payload)
-            else await supabase.from('test_pasos').insert([payload])
+            if (isStandaloneMode) await api.testPasos.update(paso.id, payload)
+            else await supabase.from('test_pasos').update(payload).eq('id', paso.id)
+          } else {
+            const insertPayload = { test_config_id: config.id, orden, nombre_archivo: null, ruta_archivo: null, url_publica: null, descripcion: null, ...payload }
+            if (isStandaloneMode) await api.testPasos.create(insertPayload)
+            else await supabase.from('test_pasos').insert([insertPayload])
           }
         }
       }
       setArchivoTextoOptopad('')
       await cargarConfiguracionTest()
-      alert('Valores decimales importados correctamente')
+      alert('Configuración Optopad Color importada correctamente')
     } catch (e) {
       console.error(e)
       alert('Error al importar')
@@ -558,18 +573,18 @@ export default function TestsPage() {
             ) : testSeleccionado === 'optopad_color' ? (
               <div className="space-y-8">
                 <div className="rounded-xl border-2 border-gray-200 bg-gray-50 p-4">
-                  <h4 className="text-sm font-bold text-gray-900 mb-2">Cargar valores decimales desde archivo</h4>
-                  <p className="text-xs text-gray-900 mb-2">10 filas, 3 decimales por fila (P,D,T). Ejemplo: 0.5,-0.5,2.5</p>
+                  <h4 className="text-sm font-bold text-gray-900 mb-2">Cargar configuración Optopad Color desde CSV</h4>
+                  <p className="text-xs text-gray-900 mb-2">10 filas, 3 celdas por fila (P,D,T). Cada celda: orientación espacio decimal. Orientación: 0=derecha, 90=arriba, 180=izquierda, 270=abajo.</p>
                   <div className="flex gap-3">
                     <textarea
-                      placeholder="0.5,-0.5,2.5&#10;0.306,-0.306,1.533&#10;..."
+                      placeholder="90 0.5, 0 -0.5, 270 2.5&#10;90 0.306, 0 -0.306, 270 1.533&#10;..."
                       value={archivoTextoOptopad}
                       onChange={e => setArchivoTextoOptopad(e.target.value)}
                       rows={3}
                       className="flex-1 text-sm font-mono text-gray-900 border border-gray-300 rounded-lg px-3 py-2 bg-white"
                     />
                     <div className="flex flex-col gap-2">
-                      <input type="file" accept=".txt,text/plain" className="hidden" id="optopad-file"
+                      <input type="file" accept=".csv,.txt,text/plain,text/csv" className="hidden" id="optopad-file"
                         onChange={e => { const f = e.target.files?.[0]; if (f) { const r = new FileReader(); r.onload = () => setArchivoTextoOptopad(String(r.result ?? '')); r.readAsText(f) }; e.target.value = '' }} />
                       <label htmlFor="optopad-file" className="text-xs text-[#356375] cursor-pointer font-medium">Cargar archivo</label>
                       <button type="button" onClick={importarDecimalesDesdeArchivoOptopadColor} disabled={importandoOptopad || !archivoTextoOptopad.trim()}

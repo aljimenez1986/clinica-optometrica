@@ -61,14 +61,22 @@ function calcularResultadoValor(pasosList: PasoConfig[], filaIdx: number, ultimo
     const n = typeof v === 'number' ? v : parseFloat(String(v))
     return isNaN(n) ? null : n
   }
-  const P1 = getVal(1), P2 = getVal(2), P8 = getVal(8), P9 = getVal(9)
-  if (ultimoPaso === 0) return (P1 != null && P2 != null && P2 !== 0) ? (P1 * P1) / P2 : null
-  if (ultimoPaso >= 8 && ultimoPaso <= 9) return (P9 != null && P8 != null && P8 !== 0) ? (P9 * P9) / P8 : null
-  if (ultimoPaso >= 1 && ultimoPaso <= 7) {
-    const Pk = getVal(ultimoPaso + 1), Pk1 = getVal(ultimoPaso + 2)
-    return (Pk != null && Pk1 != null) ? (Pk + Pk1) / 2 : null
+  const P1 = getVal(1), P2 = getVal(2), P3 = getVal(3), P4 = getVal(4)
+  const P5 = getVal(5), P6 = getVal(6), P7 = getVal(7), P8 = getVal(8), P9 = getVal(9)
+  switch (ultimoPaso) {
+    case 0: return (P1 != null && P2 != null && P2 !== 0) ? (P1 * P1) / P2 : null
+    case 1: return (P1 != null && P2 != null) ? (P1 + P2) / 2 : null
+    case 2: return (P2 != null && P3 != null) ? (P2 + P3) / 2 : null
+    case 3: return (P3 != null && P4 != null) ? (P3 + P4) / 2 : null
+    case 4: return (P4 != null && P5 != null) ? (P4 + P5) / 2 : null
+    case 5: return (P5 != null && P6 != null) ? (P5 + P6) / 2 : null
+    case 6: return (P6 != null && P7 != null) ? (P6 + P7) / 2 : null
+    case 7: return (P7 != null && P8 != null) ? (P7 + P8) / 2 : null
+    case 8: return (P8 != null && P9 != null) ? (P8 + P9) / 2 : null
+    case 9:
+    case 10: return (P9 != null && P8 != null && P8 !== 0) ? (P9 * P9) / P8 : null
+    default: return null
   }
-  return null
 }
 
 export default function TestsPage() {
@@ -196,9 +204,9 @@ export default function TestsPage() {
         const rP = parsePos(d.resultado_p)
         const rD = parsePos(d.resultado_d)
         const rT = parsePos(d.resultado_t)
-        const ultimoP = rP >= 1 && rP <= 10 ? rP - 1 : (rP === 0 ? 0 : -1)
-        const ultimoD = rD >= 1 && rD <= 10 ? rD - 1 : (rD === 0 ? 0 : -1)
-        const ultimoT = rT >= 1 && rT <= 10 ? rT - 1 : (rT === 0 ? 0 : -1)
+        const ultimoP = rP >= 0 && rP <= 10 ? rP : -1
+        const ultimoD = rD >= 0 && rD <= 10 ? rD : -1
+        const ultimoT = rT >= 0 && rT <= 10 ? rT : -1
         const vP = ultimoP >= 0 ? calcularResultadoValor(pasosList, 0, ultimoP) : null
         const vD = ultimoD >= 0 ? calcularResultadoValor(pasosList, 1, ultimoD) : null
         const vT = ultimoT >= 0 ? calcularResultadoValor(pasosList, 2, ultimoT) : null
