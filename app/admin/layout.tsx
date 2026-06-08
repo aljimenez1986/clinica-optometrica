@@ -3,12 +3,9 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useSession, signOut } from 'next-auth/react'
-import { supabase } from '@/lib/supabase'
 import { useRouter, usePathname } from 'next/navigation'
 import AdminSidebar from '@/components/AdminSidebar'
 import OptopadLogo from '@/components/OptopadLogo'
-import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
-import { isStandaloneMode } from '@/lib/use-standalone'
 
 export default function AdminLayout({
   children,
@@ -16,73 +13,38 @@ export default function AdminLayout({
   children: React.ReactNode
 }) {
   const { data: nextAuthSession, status } = useSession()
-  const [supabaseUser, setSupabaseUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
   const pathname = usePathname()
 
   const RUTAS_SOLO_ADMIN = ['/admin/dashboard', '/admin/usuarios', '/admin/ipads', '/admin/config']
 
-  const user = isStandaloneMode ? (nextAuthSession?.user ? { id: (nextAuthSession.user as any).id, email: nextAuthSession.user.email } : null) : supabaseUser
-  const userRole = isStandaloneMode ? (nextAuthSession?.user as any)?.role : null
+  const user = nextAuthSession?.user ?? null
+  const userRole = (nextAuthSession?.user as any)?.role ?? null
 
   useEffect(() => {
-    if (isStandaloneMode) {
-      if (status === 'loading') return
-      const u = nextAuthSession?.user ?? null
-      if (!u) {
-        setLoading(false)
-        return
-      }
-      if (pathname === '/admin') {
-        const esAdmin = (nextAuthSession?.user as any)?.role === 'administrador'
-        router.push(esAdmin ? '/admin/dashboard' : '/admin/pacientes')
-      } else if (RUTAS_SOLO_ADMIN.includes(pathname)) {
-        if ((nextAuthSession?.user as any)?.role !== 'administrador') {
-          router.push('/admin/pacientes')
-        }
-      }
+    if (status === 'loading') {
+      setLoading(true)
+      return
+    }
+
+    const u = nextAuthSession?.user ?? null
+    if (!u) {
       setLoading(false)
       return
     }
 
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      const u = session?.user ?? null
-      setSupabaseUser(u)
-
-      if (!u) {
-        setLoading(false)
-        return
+    if (pathname === '/admin') {
+      const esAdmin = (nextAuthSession?.user as any)?.role === 'administrador'
+      router.push(esAdmin ? '/admin/dashboard' : '/admin/pacientes')
+    } else if (RUTAS_SOLO_ADMIN.includes(pathname)) {
+      if ((nextAuthSession?.user as any)?.role !== 'administrador') {
+        router.push('/admin/pacientes')
       }
-
-      if (pathname === '/admin') {
-        const { data } = await supabase.from('app_usuario').select('role').eq('auth_user_id', u.id).single()
-        const esAdmin = data?.role === 'administrador'
-        router.push(esAdmin ? '/admin/dashboard' : '/admin/pacientes')
-        setLoading(false)
-        return
-      }
-
-      if (RUTAS_SOLO_ADMIN.includes(pathname)) {
-        const { data } = await supabase.from('app_usuario').select('role').eq('auth_user_id', u.id).single()
-        if (data?.role !== 'administrador') {
-          router.push('/admin/pacientes')
-          setLoading(false)
-          return
-        }
-      }
-
-      setLoading(false)
     }
-    checkUser()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
-      setSupabaseUser(session?.user ?? null)
-    })
-
-    return () => subscription.unsubscribe()
-  }, [router, pathname, isStandaloneMode, nextAuthSession, status])
+    setLoading(false)
+  }, [router, pathname,  nextAuthSession, status])
 
   // Si está cargando, mostrar spinner
   if (loading) {
@@ -131,11 +93,7 @@ export default function AdminLayout({
               </div>
               <button 
                 onClick={async () => {
-                  if (isStandaloneMode) {
-                    await signOut({ redirect: false })
-                  } else {
-                    await supabase.auth.signOut()
-                  }
+                  await signOut({ redirect: false })
                   router.push('/admin')
                 }}
                 className="bg-red-50 text-red-600 px-4 py-2 rounded-lg font-medium hover:bg-red-100 transition border border-red-200"

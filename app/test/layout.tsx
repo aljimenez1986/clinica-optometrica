@@ -1,13 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
-import { supabase } from '@/lib/supabase'
 import OptopadLogo from '@/components/OptopadLogo'
-import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
-import { isStandaloneMode } from '@/lib/use-standalone'
+
 
 function LoadingSpinner() {
   return (
@@ -22,28 +20,15 @@ function LoadingSpinner() {
 
 export default function EjecucionLayout({ children }: { children: React.ReactNode }) {
   const { data: nextSession, status } = useSession()
-  const [supabaseUser, setSupabaseUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
 
-  const user = isStandaloneMode ? nextSession?.user : supabaseUser
+  const user = nextSession?.user 
 
   useEffect(() => {
-    if (isStandaloneMode) {
-      setLoading(status === 'loading')
-      return
-    }
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      setSupabaseUser(session?.user ?? null)
-      setLoading(false)
-    }
-    checkUser()
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
-      setSupabaseUser(session?.user ?? null)
-    })
-    return () => subscription.unsubscribe()
-  }, [isStandaloneMode, status])
+   
+    setLoading(status === 'loading')
+  }, [ status])
 
   if (loading) return <LoadingSpinner />
   if (!user) {
@@ -75,11 +60,7 @@ export default function EjecucionLayout({ children }: { children: React.ReactNod
             </div>
             <button
               onClick={async () => {
-                if (isStandaloneMode) {
-                  await signOut({ redirect: false })
-                } else {
-                  await supabase.auth.signOut()
-                }
+                await signOut({ redirect: false })
                 router.push('/admin')
               }}
               className="bg-red-50 text-red-600 px-4 py-2 rounded-lg font-medium hover:bg-red-100 transition border border-red-200"

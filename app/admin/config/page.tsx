@@ -2,9 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
 import { api } from '@/lib/optopad-api'
-import { isStandaloneMode } from '@/lib/use-standalone'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,45 +61,29 @@ export default function TestsPage() {
   useEffect(() => {
     async function load() {
       try {
-        if (isStandaloneMode) {
-          const data = await api.ipads.list()
-          const list = Array.isArray(data) ? data : []
-          setIpads(list)
-          if (list.length > 0 && !ipadSeleccionado) setIpadSeleccionado(list[0].id)
-        } else {
-          const { data } = await supabase.from('ipads').select('*').order('nombre')
-          const list = data || []
-          setIpads(list)
-          if (list.length > 0 && !ipadSeleccionado) setIpadSeleccionado(list[0].id)
-        }
+        const data = await api.ipads.list()
+        const list = Array.isArray(data) ? data : []
+        setIpads(list)
+        if (list.length > 0 && !ipadSeleccionado) setIpadSeleccionado(list[0].id)
       } catch (e) {
         console.error('Error cargando iPads:', e)
       }
     }
     load()
-  }, [isStandaloneMode])
+  }, [ipadSeleccionado])
 
   useEffect(() => {
     if (testSeleccionado) cargarConfiguracionTest()
     else { setTestConfig(null); setPasos([]) }
-  }, [testSeleccionado, ipadSeleccionado, isStandaloneMode])
+  }, [testSeleccionado, ipadSeleccionado])
 
   async function cargarConfiguracionTest() {
     if (!ipadSeleccionado) return
     try {
       let configData: any = null
       let pasosData: any[] = []
-      if (isStandaloneMode) {
-        configData = await api.testConfigs.get(ipadSeleccionado, testSeleccionado)
-        if (configData) pasosData = await api.testPasos.list(configData.id)
-      } else {
-        const { data, error } = await supabase.from('test_configs').select('*').eq('ipad_id', ipadSeleccionado).eq('tipo_test', testSeleccionado).single()
-        if (!error || error.message.includes('No rows')) configData = data
-        if (configData) {
-          const { data: pasos } = await supabase.from('test_pasos').select('*').eq('test_config_id', configData.id).order('orden', { ascending: true })
-          pasosData = pasos || []
-        }
-      }
+      configData = await api.testConfigs.get(ipadSeleccionado, testSeleccionado)
+      if (configData) pasosData = await api.testPasos.list(configData.id)
       setTestConfig(configData)
       const pasosParseados = (pasosData || []).map((paso: any) => {
         let valoresCorrectos = undefined
@@ -128,23 +110,12 @@ export default function TestsPage() {
     }
     const tipoTest = tiposTest.find(t => t.id === testSeleccionado)
     try {
-      if (isStandaloneMode) {
-        const data = await api.testConfigs.create({
-          tipo_test: testSeleccionado,
-          nombre: tipoTest?.nombre || testSeleccionado,
-          descripcion: `Configuración para ${tipoTest?.nombre}`,
-          ipad_id: ipadSeleccionado
-        })
-        setTestConfig(data)
-        return data
-      }
-      const { data, error } = await supabase.from('test_configs').insert([{
+      const data = await api.testConfigs.create({
         tipo_test: testSeleccionado,
         nombre: tipoTest?.nombre || testSeleccionado,
         descripcion: `Configuración para ${tipoTest?.nombre}`,
         ipad_id: ipadSeleccionado
-      }]).select().single()
-      if (error) throw error
+      })
       setTestConfig(data)
       return data
     } catch (e: any) {
@@ -183,30 +154,10 @@ export default function TestsPage() {
       }
 
       if (archivo) {
-        if (isStandaloneMode) {
-          const uploadRes = await api.upload(archivo, String(testSeleccionado))
-          datosPaso.nombre_archivo = uploadRes.nombre_archivo
-          datosPaso.ruta_archivo = uploadRes.ruta_archivo
-          datosPaso.url_publica = uploadRes.url_publica
-        } else {
-          const timestamp = Date.now()
-          const extension = archivo.name.split('.').pop()
-          const nombreArchivo = `paso_${orden}_${timestamp}.${extension}`
-          const rutaArchivo = `${testSeleccionado}/${nombreArchivo}`
-          const { error: uploadError } = await supabase.storage.from('tests').upload(rutaArchivo, archivo, { cacheControl: '3600', upsert: false })
-          if (uploadError) {
-            if (uploadError.message.includes('Bucket not found')) {
-              alert('El bucket de almacenamiento no existe. Por favor, créelo en Supabase Storage.')
-              setSubiendo(false)
-              return
-            }
-            throw uploadError
-          }
-          const { data: urlData } = supabase.storage.from('tests').getPublicUrl(rutaArchivo)
-          datosPaso.nombre_archivo = nombreArchivo
-          datosPaso.ruta_archivo = rutaArchivo
-          datosPaso.url_publica = urlData.publicUrl
-        }
+        const uploadRes = await api.upload(archivo, String(testSeleccionado))
+        datosPaso.nombre_archivo = uploadRes.nombre_archivo
+        datosPaso.ruta_archivo = uploadRes.ruta_archivo
+        datosPaso.url_publica = uploadRes.url_publica
       }
 
       // Si es agudeza visual, agregar valores correctos
@@ -220,24 +171,14 @@ export default function TestsPage() {
         datosPaso.valores_correctos = valoresFiltrados
       }
       if (pasoEditando && pasoEditando.id) {
-        if (isStandaloneMode) {
-          await api.testPasos.update(pasoEditando.id, datosPaso)
-        } else {
-          const { error } = await supabase.from('test_pasos').update(datosPaso).eq('id', pasoEditando.id)
-          if (error) throw error
-        }
+        await api.testPasos.update(pasoEditando.id, datosPaso)
       } else {
         if (!archivo) {
           alert('Por favor, seleccione una imagen para el nuevo paso')
           setSubiendo(false)
           return
         }
-        if (isStandaloneMode) {
-          await api.testPasos.create({ test_config_id: testConfig.id, orden, ...datosPaso })
-        } else {
-          const { error } = await supabase.from('test_pasos').insert([{ test_config_id: testConfig.id, orden, ...datosPaso }])
-          if (error) throw error
-        }
+        await api.testPasos.create({ test_config_id: testConfig.id, orden, ...datosPaso })
       }
 
       // Limpiar formulario
@@ -259,19 +200,10 @@ export default function TestsPage() {
     }
   }
 
-  async function eliminarPaso(pasoId: string, rutaArchivo?: string | null) {
+  async function eliminarPaso(pasoId: string) {
     if (!confirm('¿Seguro que desea eliminar este paso?')) return
     try {
-      if (isStandaloneMode) {
-        await api.testPasos.delete(pasoId)
-      } else {
-        const { error } = await supabase.from('test_pasos').delete().eq('id', pasoId)
-        if (error) throw error
-        if (rutaArchivo) {
-          const { error: storageError } = await supabase.storage.from('tests').remove([rutaArchivo])
-          if (storageError) console.error('Error eliminando archivo:', storageError)
-        }
-      }
+      await api.testPasos.delete(pasoId)
     } catch (e) {
       console.error('Error eliminando paso:', e)
     }
@@ -304,8 +236,7 @@ export default function TestsPage() {
 
     if (!valorTrim) {
       if (paso?.id) {
-        if (isStandaloneMode) await api.testPasos.delete(paso.id)
-        else await supabase.from('test_pasos').delete().eq('id', paso.id)
+        await api.testPasos.delete(paso.id)
         cargarConfiguracionTest()
       }
       return
@@ -313,16 +244,11 @@ export default function TestsPage() {
     if (!OPCIONES_DIRECCION.includes(valorTrim as typeof OPCIONES_DIRECCION[number])) return
     const payload: Record<string, unknown> = { valores_correctos: [valorTrim], valor_decimal: valorDecimalToSave }
     if (paso?.id) {
-      if (isStandaloneMode) await api.testPasos.update(paso.id, payload)
-      else await supabase.from('test_pasos').update(payload).eq('id', paso.id)
+      await api.testPasos.update(paso.id, payload)
       cargarConfiguracionTest()
       return
     }
-    if (isStandaloneMode) {
-      await api.testPasos.create({ test_config_id: config.id, orden, nombre_archivo: null, ruta_archivo: null, url_publica: null, descripcion: null, ...payload })
-    } else {
-      await supabase.from('test_pasos').insert([{ test_config_id: config.id, orden, nombre_archivo: null, ruta_archivo: null, url_publica: null, descripcion: null, ...payload }])
-    }
+    await api.testPasos.create({ test_config_id: config.id, orden, nombre_archivo: null, ruta_archivo: null, url_publica: null, descripcion: null, ...payload })
     cargarConfiguracionTest()
   }
 
@@ -333,8 +259,7 @@ export default function TestsPage() {
     if (!paso?.id) return
     const dec = parseValorDecimal(valorDecimal)
     try {
-      if (isStandaloneMode) await api.testPasos.update(paso.id, { valor_decimal: dec })
-      else await supabase.from('test_pasos').update({ valor_decimal: dec }).eq('id', paso.id)
+      await api.testPasos.update(paso.id, { valor_decimal: dec })
       cargarConfiguracionTest()
     } catch (_) {}
   }
@@ -387,12 +312,10 @@ export default function TestsPage() {
           const paso = pasos.find(p => p.orden === orden)
           const payload = { valores_correctos: [orientacion], valor_decimal: decimal }
           if (paso?.id) {
-            if (isStandaloneMode) await api.testPasos.update(paso.id, payload)
-            else await supabase.from('test_pasos').update(payload).eq('id', paso.id)
+            await api.testPasos.update(paso.id, payload)
           } else {
             const insertPayload = { test_config_id: config.id, orden, nombre_archivo: null, ruta_archivo: null, url_publica: null, descripcion: null, ...payload }
-            if (isStandaloneMode) await api.testPasos.create(insertPayload)
-            else await supabase.from('test_pasos').insert([insertPayload])
+            await api.testPasos.create(insertPayload)
           }
         }
       }
@@ -449,17 +372,9 @@ export default function TestsPage() {
     const pasoIntercambio = pasos.find(p => p.orden === nuevaPosicion)
     try {
       if (pasoIntercambio) {
-        if (isStandaloneMode) await api.testPasos.update(pasoIntercambio.id!, { orden: pasoActual.orden })
-        else {
-          const { error } = await supabase.from('test_pasos').update({ orden: pasoActual.orden }).eq('id', pasoIntercambio.id)
-          if (error) throw error
-        }
+        await api.testPasos.update(pasoIntercambio.id!, { orden: pasoActual.orden })
       }
-      if (isStandaloneMode) await api.testPasos.update(pasoId, { orden: nuevaPosicion })
-      else {
-        const { error } = await supabase.from('test_pasos').update({ orden: nuevaPosicion }).eq('id', pasoId)
-        if (error) throw error
-      }
+      await api.testPasos.update(pasoId, { orden: nuevaPosicion })
       cargarConfiguracionTest()
     } catch (error) {
       console.error('Error reordenando:', error)
@@ -761,7 +676,7 @@ export default function TestsPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => eliminarPaso(paso.id!, paso.ruta_archivo)}
+                          onClick={() => eliminarPaso(paso.id!)}
                           title="Eliminar"
                           className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition"
                         >

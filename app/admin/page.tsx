@@ -2,10 +2,8 @@
 
 import { useState, FormEvent } from 'react'
 import { signIn } from 'next-auth/react'
-import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import OptopadLogo from '@/components/OptopadLogo'
-import { isStandaloneMode } from '@/lib/use-standalone'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,28 +19,16 @@ export default function AdminLogin() {
     setError('')
     setLoading(true)
 
-    if (isStandaloneMode) {
-      const res = await signIn('credentials', { email, password, redirect: false })
-      if (res?.error) {
-        setError(res.error)
-        setLoading(false)
-      } else if (res?.ok) {
-        router.push('/admin')
-        router.refresh()
-      } else {
-        setLoading(false)
-      }
-      return
-    }
+    const res = await signIn('credentials', { email, password, redirect: false })
 
-    const { data, error: loginError } = await supabase.auth.signInWithPassword({ email, password })
-    
-    if (loginError) {
-      setError(loginError.message)
+    if (res?.error) {
+      setError(res.error)
       setLoading(false)
-    } else if (data?.user) {
-      const { data: perfil } = await supabase.from('app_usuario').select('role').eq('auth_user_id', data.user.id).single()
-      router.push(perfil?.role === 'administrador' ? '/admin/dashboard' : '/admin/pacientes')
+    } else if (res?.ok) {
+      router.push('/admin')
+      router.refresh()
+    } else {
+      setLoading(false)
     }
   }
 

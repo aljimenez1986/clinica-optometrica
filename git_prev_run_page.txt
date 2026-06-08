@@ -1,9 +1,11 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
 import { api } from '@/lib/optopad-api'
+import { isStandaloneMode } from '@/lib/use-standalone'
 
 const FILAS_OPTOPAD_COLOR = ['P', 'D', 'T'] as const
 const PASOS_POR_FILA = 10
@@ -46,18 +48,6 @@ function calcularResultadoFila(pasosList: PasoConfig[], filaIdx: number, ultimoP
   }
 }
 
-function parseValoresCorrectos(value: unknown): string[] {
-  if (Array.isArray(value)) return value
-  if (typeof value === 'string') {
-    try {
-      return JSON.parse(value)
-    } catch (err) {
-      return []
-    }
-  }
-  return []
-}
-
 function RunTestContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -98,103 +88,99 @@ function RunTestContent() {
 
   useEffect(() => {
     if (!pacienteId || !ipadId || testParam !== 'optopad_color') {
-      setError('Parámetros inválidos. Debe indicar paciente, iPad y test Optopad Color.')
+      setError('Par├ímetros inv├ílidos. Debe indicar paciente, iPad y test Optopad Color.')
       setLoading(false)
       return
     }
-
-    async function loadTestData() {
+    async function load() {
       try {
-        const sess = await fetch('/api/auth/session', { credentials: 'include' })
-          .then(r => r.json())
-          .catch(() => null)
-
-        if (!sess?.user) {
-          setError('Sesión no válida.')
-          setLoading(false)
-          return
-        }
-
-        const userId = (sess.user as any).id
-        const esAdmin = (sess.user as any).role === 'administrador'
-        if (!esAdmin) {
-          const pacientes = await api.pacientes.list()
-          const paciente = pacientes.find((p: any) => p.id === pacienteId)
-          if (paciente?.registrado_por !== userId) {
-            setError('No tiene permiso para ejecutar tests con este paciente.')
+        if (isStandaloneMode) {
+          const sess = await fetch('/api/auth/session', { credentials: 'include' }).then(r => r.json()).catch(() => null)
+          if (!sess?.user) {
+            setError('Sesi├│n no v├ílida.')
             setLoading(false)
             return
           }
-
-          const ipadsList = await api.ipads.list()
-          const ipad = ipadsList.find((i: any) => i.id === ipadId)
-          const asignado = (ipad?.ipad_clinico || []).some((ic: any) => ic.usuario_id === userId)
-          if (!asignado) {
-            setError('No tiene permiso para usar este iPad.')
+          const userId = (sess.user as any).id
+          const esAdmin = (sess.user as any).role === 'administrador'
+          if (!esAdmin) {
+            const pacientes = await api.pacientes.list()
+            const pac = pacientes.find((p: any) => p.id === pacienteId)
+            if (pac?.registrado_por !== userId) {
+              setError('No tiene permiso para ejecutar tests con este paciente.')
+              setLoading(false)
+              return
+            }
+            const ipadsList = await api.ipads.list()
+            const ipad = ipadsList.find((i: any) => i.id === ipadId)
+            const asignado = (ipad?.ipad_clinico || []).some((ic: any) => ic.usuario_id === userId)
+            if (!asignado) {
+              setError('No tiene permiso para usar este iPad.')
+              setLoading(false)
+              return
+            }
+          }
+          const configData = await api.testConfigs.get(ipadId!, 'optopad_color')
+          if (!configData) {
+            setError('No hay configuraci├│n de Optopad Color para este iPad. Config├║rela en Panel Admin.')
             setLoading(false)
             return
           }
-        }
-
-        const configData = await api.testConfigs.get(ipadId!, 'optopad_color')
-        if (!configData) {
-          setError('No hay configuración de Optopad Color para este iPad. Configúrela en Panel Admin.')
-          setLoading(false)
-          return
-        }
-        setTestConfigId(configData.id)
-
-        const pasosData = await api.testPasos.list(configData.id)
-        const mappedPasos: PasoConfig[] = []
-        for (const p of pasosData || []) {
-          mappedPasos.push({
+          setTestConfigId(configData.id)
+          const pasosData = await api.testPasos.list(configData.id)
+          const list = (pasosData || []).map((p: any) => ({
             ...p,
-            valores_correctos: parseValoresCorrectos(p.valores_correctos),
-          })
+            valores_correctos: Array.isArray(p.valores_correctos) ? p.valores_correctos : (typeof p.valores_correctos === 'string' ? (() => { try { return JSON.parse(p.valores_correctos) } catch { return [] } })() : [])
+          }))
+          setPasos(list)
+        } else {
+          const { data: { user } } = await supabase.auth.getUser()
+          if (!user) {
+            setError('Sesi├│n no v├ílida.')
+            setLoading(false)
+            return
+          }
+          const { data: perfil } = await supabase.from('app_usuario').select('id, role').eq('auth_user_id', user.id).single()
+          const esAdmin = perfil?.role === 'administrador'
+          if (!esAdmin && perfil?.id) {
+            const [pacRes, icRes] = await Promise.all([
+              supabase.from('pacientes').select('registrado_por').eq('id', pacienteId).single(),
+              supabase.from('ipad_clinico').select('ipad_id').eq('usuario_id', perfil.id).eq('ipad_id', ipadId).maybeSingle()
+            ])
+            const pacienteOk = pacRes.data?.registrado_por === perfil.id
+            const ipadOk = icRes.data != null
+            if (!pacienteOk || !ipadOk) {
+              setError('No tiene permiso para ejecutar tests con este paciente o iPad.')
+              setLoading(false)
+              return
+            }
+          }
+          const { data: configData, error: configError } = await supabase.from('test_configs').select('id').eq('ipad_id', ipadId).eq('tipo_test', 'optopad_color').single()
+          if (configError || !configData) {
+            setError('No hay configuraci├│n de Optopad Color para este iPad. Config├║rela en Panel Admin.')
+            setLoading(false)
+            return
+          }
+          setTestConfigId(configData.id)
+          const { data: pasosData, error: pasosError } = await supabase.from('test_pasos').select('id, orden, valores_correctos, valor_decimal').eq('test_config_id', configData.id).order('orden', { ascending: true })
+          if (pasosError) {
+            setError('Error al cargar los pasos del test.')
+            setLoading(false)
+            return
+          }
+          const list = (pasosData || []).map((p: any) => ({
+            ...p,
+            valores_correctos: Array.isArray(p.valores_correctos) ? p.valores_correctos : (typeof p.valores_correctos === 'string' ? (() => { try { return JSON.parse(p.valores_correctos) } catch { return [] } })() : [])
+          }))
+          setPasos(list)
         }
-        setPasos(mappedPasos)
-      } catch (error) {
-        setError('Error al cargar: ' + ((error as Error)?.message || 'Error desconocido'))
-      } finally {
-        setLoading(false)
+      } catch (e) {
+        setError('Error al cargar: ' + (e as Error).message)
       }
+      setLoading(false)
     }
-
-    loadTestData()
-  }, [pacienteId, ipadId, testParam])
-
-  useEffect(() => {
-    if (!testFinished || !testConfigId || !pacienteId || resultadoGuardado) return
-
-    const guardar = async () => {
-      const ultimoP = lastCorrect[0] >= 0 ? lastCorrect[0] : -1
-      const ultimoD = lastCorrect[1] >= 0 ? lastCorrect[1] : -1
-      const ultimoT = lastCorrect[2] >= 0 ? lastCorrect[2] : -1
-      const rP = calcularResultadoFila(pasos, 0, ultimoP)
-      const rD = calcularResultadoFila(pasos, 1, ultimoD)
-      const rT = calcularResultadoFila(pasos, 2, ultimoT)
-      const datosRespuesta: Record<string, unknown> = {
-        resultado_p: lastCorrect[0],
-        resultado_d: lastCorrect[1],
-        resultado_t: lastCorrect[2],
-        resultado_p_valor: rP ?? null,
-        resultado_d_valor: rD ?? null,
-        resultado_t_valor: rT ?? null
-      }
-
-      try {
-        await api.testResultados.create({
-          paciente_id: pacienteId,
-          test_config_id: testConfigId,
-          paso_actual: 0,
-          datos_respuesta: datosRespuesta
-        })
-        setResultadoGuardado(true)
-      } catch (_) {}
-    }
-
-    guardar()
-  }, [testFinished, testConfigId, pacienteId, lastCorrect, resultadoGuardado, pasos])
+    load()
+  }, [pacienteId, ipadId, testParam, isStandaloneMode])
 
   const salirSinGuardar = useCallback(() => {
     setShowSalirConfirm(false)
@@ -252,6 +238,46 @@ function RunTestContent() {
       }
     }
   }, [filaIndex, pasoIndex, respuestaCorrecta, consecutiveFailures])
+
+  useEffect(() => {
+    if (!testFinished || !testConfigId || !pacienteId || resultadoGuardado) return
+    const guardar = async () => {
+      const ultimoP = lastCorrect[0] >= 0 ? lastCorrect[0] : -1
+      const ultimoD = lastCorrect[1] >= 0 ? lastCorrect[1] : -1
+      const ultimoT = lastCorrect[2] >= 0 ? lastCorrect[2] : -1
+      const rP = calcularResultadoFila(pasos, 0, ultimoP)
+      const rD = calcularResultadoFila(pasos, 1, ultimoD)
+      const rT = calcularResultadoFila(pasos, 2, ultimoT)
+      const datosRespuesta: Record<string, unknown> = {
+        resultado_p: lastCorrect[0],
+        resultado_d: lastCorrect[1],
+        resultado_t: lastCorrect[2],
+        resultado_p_valor: rP ?? null,
+        resultado_d_valor: rD ?? null,
+        resultado_t_valor: rT ?? null
+      }
+      try {
+        if (isStandaloneMode) {
+          await api.testResultados.create({
+            paciente_id: pacienteId,
+            test_config_id: testConfigId,
+            paso_actual: 0,
+            datos_respuesta: datosRespuesta
+          })
+        } else {
+          const { error: insertError } = await supabase.from('test_resultados').insert([{
+            paciente_id: pacienteId,
+            test_config_id: testConfigId,
+            paso_actual: 0,
+            datos_respuesta: datosRespuesta
+          }])
+          if (insertError) throw insertError
+        }
+        setResultadoGuardado(true)
+      } catch (_) {}
+    }
+    guardar()
+  }, [testFinished, testConfigId, pacienteId, lastCorrect, resultadoGuardado, pasos, isStandaloneMode])
 
   const backHref = pacienteId ? `/test?paciente=${encodeURIComponent(pacienteId)}` : '/test'
   const BackLink = () => (
@@ -312,7 +338,7 @@ function RunTestContent() {
             <h1 className="text-xl font-bold text-white">Test finalizado</h1>
           </div>
           <div className="p-6">
-            <p className="text-gray-600 mb-6">Último paso correcto (1–10) y resultado por fila:</p>
+            <p className="text-gray-600 mb-6">├Ültimo paso correcto (1ÔÇô10) y resultado por fila:</p>
             <dl className="grid grid-cols-3 gap-4 mb-6">
               <div className="bg-gray-50 rounded-lg p-4 text-center">
                 <dt className="text-sm font-medium text-gray-500">Fila P</dt>
@@ -350,7 +376,7 @@ function RunTestContent() {
           </button>
         </div>
         <div className="bg-white rounded-xl shadow-md border border-gray-200 px-5 py-4 mb-6">
-          <h2 className="text-lg font-bold text-gray-900">Optopad Color — Fila {fila}, paso {pasoNum}</h2>
+          <h2 className="text-lg font-bold text-gray-900">Optopad Color ÔÇö Fila {fila}, paso {pasoNum}</h2>
         </div>
         <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
           <div className="p-6">
@@ -359,9 +385,9 @@ function RunTestContent() {
             ) : (
               <p className="text-sm text-amber-600 mb-2">Sin respuesta configurada para este paso.</p>
             )}
-            <p className="text-sm text-gray-600 mb-1">Última correcta en esta fila: <span className="font-semibold text-gray-900">{lastCorrect[filaIndex]}</span></p>
-            <p className="text-xs text-gray-500 mb-4">P: {lastCorrect[0]} · D: {lastCorrect[1]} · T: {lastCorrect[2]}</p>
-            <p className="text-gray-600 mb-6">¿Qué dirección percibe el paciente?</p>
+            <p className="text-sm text-gray-600 mb-1">├Ültima correcta en esta fila: <span className="font-semibold text-gray-900">{lastCorrect[filaIndex]}</span></p>
+            <p className="text-xs text-gray-500 mb-4">P: {lastCorrect[0]} ┬À D: {lastCorrect[1]} ┬À T: {lastCorrect[2]}</p>
+            <p className="text-gray-600 mb-6">┬┐Qu├® direcci├│n percibe el paciente?</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {OPCIONES_RESPUESTA.map(opcion => (
                 <button key={opcion} type="button" onClick={() => handleRespuesta(opcion)}
@@ -385,7 +411,7 @@ function RunTestContent() {
         <div className="fixed inset-0 bg-gray-600/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl border border-gray-200 max-w-md w-full p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Salir del test</h3>
-            <p className="text-gray-600 mb-6">Si sales ahora, los resultados no se guardarán. ¿Quieres salir igualmente?</p>
+            <p className="text-gray-600 mb-6">Si sales ahora, los resultados no se guardar├ín. ┬┐Quieres salir igualmente?</p>
             <div className="flex gap-3">
               <button type="button" onClick={() => setShowSalirConfirm(false)} className="flex-1 py-2.5 rounded-lg font-medium border-2 border-gray-300 text-gray-700 hover:bg-gray-50">Cancelar</button>
               <button type="button" onClick={salirSinGuardar} className="flex-1 py-2.5 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700">Salir sin guardar</button>

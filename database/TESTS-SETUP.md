@@ -1,6 +1,6 @@
 # Configuración de Tests - Guía de Instalación
 
-Esta guía explica cómo configurar el sistema de tests para definir las imágenes y su orden.
+Esta guía explica cómo configurar el sistema de tests para definir las imágenes y su orden en modo standalone.
 
 ## 📋 Concepto
 
@@ -13,59 +13,25 @@ Los **tests son plantillas configurables** que definen:
 
 ### 1. Crear las Tablas en la Base de Datos
 
-Ejecuta el script `tests-schema.sql` en el SQL Editor de Supabase:
+Ejecuta el script `tests-schema.sql` en PostgreSQL:
 
-1. Ve a https://app.supabase.com
-2. Selecciona tu proyecto
-3. Ve a **SQL Editor**
-4. Copia y pega el contenido de `database/tests-schema.sql`
-5. Ejecuta el script
+```bash
+psql "$DATABASE_URL" -f database/tests-schema.sql
+```
 
 Este script creará:
 - `test_configs`: Configuraciones de cada tipo de test
 - `test_pasos`: Imágenes y su orden para cada test
-- `test_resultados`: Datos registrados por los pacientes (para uso futuro)
+- `test_resultados`: Datos registrados por los pacientes
 
-### 2. Crear el Bucket de Storage
+### 2. Uso de Archivos de Imagen
 
-1. En Supabase, ve a **Storage** (menú lateral)
-2. Haz clic en **New bucket**
-3. Configura el bucket:
-   - **Name**: `tests`
-   - **Public bucket**: ✅ Marca esta opción (para que las imágenes sean accesibles públicamente)
-   - **File size limit**: 10 MB (o el tamaño que prefieras)
-   - **Allowed MIME types**: `image/*` (o deja vacío para permitir todos)
+Las imágenes de cada paso se almacenan en el servidor local bajo `public/uploads`.
 
-4. Haz clic en **Create bucket**
+- La API de upload escribe archivos en `public/uploads`
+- En producción, configura `UPLOAD_DIR` y `NEXT_PUBLIC_UPLOAD_BASE_URL` si necesitas rutas personalizadas
 
-### 3. Configurar Políticas de Storage (Opcional pero Recomendado)
-
-Para mayor seguridad, puedes configurar políticas RLS en el bucket:
-
-1. Ve a **Storage** → **Policies** → Selecciona el bucket `tests`
-2. Crea las siguientes políticas:
-
-```sql
--- Política: Permitir a usuarios autenticados subir archivos
-CREATE POLICY "Usuarios autenticados pueden subir archivos"
-ON storage.objects FOR INSERT
-TO authenticated
-WITH CHECK (bucket_id = 'tests');
-
--- Política: Permitir a usuarios autenticados leer archivos
-CREATE POLICY "Usuarios autenticados pueden leer archivos"
-ON storage.objects FOR SELECT
-TO authenticated
-USING (bucket_id = 'tests');
-
--- Política: Permitir a usuarios autenticados eliminar archivos
-CREATE POLICY "Usuarios autenticados pueden eliminar archivos"
-ON storage.objects FOR DELETE
-TO authenticated
-USING (bucket_id = 'tests');
-```
-
-### 4. Configurar Tests en la Aplicación
+### 3. Configurar Tests en la Aplicación
 
 1. Ve a la página de Tests en la aplicación (`/admin/tests`)
 2. Selecciona un tipo de test (ej: "Rejilla de Amsler")

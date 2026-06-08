@@ -17,9 +17,9 @@ fi
 # Verificar variables de entorno críticas
 source .env.local
 
-if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ] || [ -z "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]; then
+if [ -z "$DATABASE_URL" ] || [ -z "$NEXTAUTH_URL" ] || [ -z "$NEXTAUTH_SECRET" ]; then
     echo "❌ Error: Faltan variables de entorno obligatorias"
-    echo "   NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY son requeridas"
+    echo "   DATABASE_URL, NEXTAUTH_URL y NEXTAUTH_SECRET son requeridas"
     exit 1
 fi
 

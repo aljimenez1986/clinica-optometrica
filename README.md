@@ -1,19 +1,19 @@
 # Clínica Optométrica
 
-Aplicación web para la gestión de pacientes en una clínica optométrica, desarrollada con Next.js y Supabase.
+Aplicación web para la gestión de pacientes en una clínica optométrica, desarrollada con Next.js y PostgreSQL en modo standalone.
 
 ## 🚀 Características
 
 - **Gestión de Pacientes**: Registro completo con datos personales y ópticos
-- **Autenticación**: Sistema de login seguro con Supabase Auth
-- **Base de Datos**: Almacenamiento en Supabase (PostgreSQL)
+- **Autenticación**: Sistema de login seguro con NextAuth
+- **Base de Datos**: PostgreSQL en modo standalone
 - **Interfaz Moderna**: Diseño responsive con Tailwind CSS
 
 ## 📋 Requisitos
 
 - Node.js 18.x o superior
 - npm o yarn
-- Cuenta de Supabase (gratuita disponible)
+- PostgreSQL
 
 ## 🛠️ Instalación Local
 
@@ -30,22 +30,20 @@ npm install
 
 3. **Configurar variables de entorno**
 ```bash
-# Copia el archivo de ejemplo
-cp .env.example .env.local
+# Copia el archivo de ejemplo si existe
+# cp .env.example .env.local
 
-# Edita .env.local y agrega tus credenciales de Supabase
-# NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
-# NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-clave-anon
+# Edita .env.local y agrega tus variables
+# DATABASE_URL=postgresql://usuario:pass@localhost:5432/optopad
+# NEXTAUTH_URL=http://localhost:3000
+# NEXTAUTH_SECRET=tu-secreto-largo
 ```
 
 4. **Configurar la base de datos**
-   - Ve a tu proyecto en Supabase: https://app.supabase.com
-   - Abre el SQL Editor
-   - Ejecuta el script en `database/schema.sql`
+   - Ejecuta el script `database/schema-standalone.sql` en PostgreSQL
 
 5. **Crear usuario administrador**
-   - En Supabase, ve a Authentication → Users
-   - Crea un nuevo usuario con email y contraseña
+   - Ejecuta `node scripts/create-admin-standalone.js`
 
 6. **Iniciar el servidor de desarrollo**
 ```bash
@@ -84,10 +82,12 @@ clinica-optometrica/
 │   ├── page.tsx        # Página principal
 │   └── layout.tsx      # Layout principal
 ├── lib/
-│   └── supabase.ts    # Cliente de Supabase
+│   ├── db.ts           # Conexión PostgreSQL standalone
+│   └── optopad-api.ts  # Cliente API standalone
 ├── database/
-│   └── schema.sql     # Script SQL para crear tablas
+│   └── schema-standalone.sql     # Script SQL para crear tablas en modo standalone
 ├── scripts/
+│   └── create-admin-standalone.js  # Script para crear el primer admin
 │   └── deploy.sh      # Script de despliegue
 └── DEPLOY.md          # Guía completa de despliegue
 ```
@@ -96,7 +96,6 @@ clinica-optometrica/
 
 - Las variables de entorno nunca deben subirse a Git
 - El archivo `.env.local` está en `.gitignore`
-- Row Level Security (RLS) habilitado en Supabase
 - Solo usuarios autenticados pueden acceder al panel admin
 
 ## 📝 Campos del Formulario
@@ -116,13 +115,13 @@ clinica-optometrica/
 
 ## 🆘 Solución de Problemas
 
-**Error de conexión a Supabase:**
-- Verifica que las variables de entorno estén correctas
-- Asegúrate de que tu proyecto Supabase esté activo
+**Error de conexión a la base de datos:**
+- Verifica que `DATABASE_URL` en `.env.local` sea correcta
+- Asegúrate de que PostgreSQL esté en ejecución
 
 **Error al iniciar sesión:**
-- Verifica que el usuario exista en Supabase Authentication
-- Revisa que RLS esté configurado correctamente
+- Verifica que el usuario exista en la tabla `usuarios`
+- Revisa que `NEXTAUTH_SECRET` esté configurado correctamente
 
 **La aplicación no compila:**
 - Verifica que todas las dependencias estén instaladas: `npm install`
@@ -131,7 +130,7 @@ clinica-optometrica/
 ## 📚 Recursos
 
 - [Documentación Next.js](https://nextjs.org/docs)
-- [Documentación Supabase](https://supabase.com/docs)
+- [Documentación PostgreSQL](https://www.postgresql.org/docs/)
 - [Guía de Despliegue](./DEPLOY.md)
 
 ## 📄 Licencia

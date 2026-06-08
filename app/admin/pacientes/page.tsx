@@ -3,10 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
-import { supabase } from '@/lib/supabase'
 import { api } from '@/lib/optopad-api'
-import { isStandaloneMode } from '@/lib/use-standalone'
-
 export const dynamic = 'force-dynamic'
 
 type OrdenPaciente = 'id_paciente' | 'nombre' | 'genero' | 'fecha_nacimiento' | 'created_at' | 'telefono' | 'email' | 'graduacion_od' | 'graduacion_oi' | ''
@@ -39,48 +36,31 @@ export default function PacientesPage() {
 
   useEffect(() => {
     const cargarUsuario = async () => {
-      if (isStandaloneMode && session?.user) {
+      if (session?.user) {
         setMiUsuarioId((session.user as any).id)
         setEsAdmin((session.user as any).role === 'administrador')
-      } else if (!isStandaloneMode) {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          const { data } = await supabase.from('app_usuario').select('id, role').eq('auth_user_id', user.id).single()
-          setMiUsuarioId(data?.id ?? null)
-          setEsAdmin(data?.role === 'administrador')
-        }
       }
     }
     cargarUsuario()
     fetchPacientes()
-  }, [isStandaloneMode, session])
+  }, [ session])
 
   useEffect(() => {
     async function fetchPacientesConResultados() {
       try {
-        if (isStandaloneMode) {
-          const data = await api.testResultados.list()
-          setPacientesConResultados(new Set(Array.isArray(data) ? data : []))
-        } else {
-          const { data, error } = await supabase.from('test_resultados').select('paciente_id')
-          if (error) return
-          setPacientesConResultados(new Set((data || []).map((r: { paciente_id: string }) => r.paciente_id)))
-        }
+       
+        const data = await api.testResultados.list()
+        setPacientesConResultados(new Set(Array.isArray(data) ? data : []))
       } catch (_) {}
     }
     fetchPacientesConResultados()
-  }, [isStandaloneMode])
+  }, [ pacientes])
 
   async function fetchPacientes() {
     try {
-      if (isStandaloneMode) {
-        const data = await api.pacientes.list()
-        setPacientes(Array.isArray(data) ? data : [])
-      } else {
-        const { data, error } = await supabase.from('pacientes').select('*').order('created_at', { ascending: false })
-        if (error) console.error('Error cargando pacientes:', error.message)
-        else setPacientes(data || [])
-      }
+
+      const data = await api.pacientes.list()
+      setPacientes(Array.isArray(data) ? data : [])
     } catch (e) {
       console.error('Error cargando pacientes:', e)
     }
@@ -89,15 +69,9 @@ export default function PacientesPage() {
   async function verificarIdPaciente(idPaciente: string, excludeId?: string): Promise<boolean> {
     if (!idPaciente.trim()) return false
     try {
-      if (isStandaloneMode) {
-        const { exists } = await api.pacientes.checkId(idPaciente, excludeId)
-        return exists
-      }
-      let query = supabase.from('pacientes').select('id_paciente').eq('id_paciente', idPaciente.trim()).limit(1)
-      if (excludeId) query = query.neq('id', excludeId)
-      const { data, error } = await query
-      if (error) return false
-      return (data && data.length > 0)
+
+      const { exists } = await api.pacientes.checkId(idPaciente, excludeId)
+      return exists
     } catch {
       return false
     }
@@ -170,7 +144,6 @@ export default function PacientesPage() {
     setIdDuplicado(false)
     let error
 
-    if (isStandaloneMode) {
       try {
         if (editandoId) {
           await api.pacientes.update(editandoId, form)
@@ -180,14 +153,7 @@ export default function PacientesPage() {
       } catch (e: any) {
         error = { message: e.message } as any
       }
-    } else if (editandoId) {
-      const { error: updateError } = await supabase.from('pacientes').update(form).eq('id', editandoId)
-      error = updateError
-    } else {
-      const payload = { ...form, registrado_por: miUsuarioId }
-      const { error: insertError } = await supabase.from('pacientes').insert([payload])
-      error = insertError
-    }
+
     
     if (error) {
       if (error.message.includes('duplicate') || error.message.includes('unique')) {
@@ -276,11 +242,7 @@ export default function PacientesPage() {
   async function eliminarPaciente(id: string) {
     if (confirm("¿Seguro que quieres eliminar este paciente?")) {
       try {
-        if (isStandaloneMode) {
-          await api.pacientes.delete(id)
-        } else {
-          await supabase.from('pacientes').delete().eq('id', id)
-        }
+        await api.pacientes.delete(id)
         fetchPacientes()
       } catch (e) {
         console.error(e)

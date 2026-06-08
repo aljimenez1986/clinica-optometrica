@@ -1,10 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+import { useSession } from 'next-auth/react'
 import { api } from '@/lib/optopad-api'
-import { isStandaloneMode } from '@/lib/use-standalone'
-
 export const dynamic = 'force-dynamic'
 
 type Rol = 'administrador' | 'clinico'
@@ -17,6 +15,7 @@ const ROLES: { value: Rol; label: string }[] = [
 type OrdenCol = 'nombre' | 'email' | 'role' | 'created_at' | ''
 
 export default function UsuariosPage() {
+  const { data: session } = useSession()
   const [usuarios, setUsuarios] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [esAdmin, setEsAdmin] = useState(false)
@@ -30,25 +29,15 @@ export default function UsuariosPage() {
 
   useEffect(() => {
     cargarDatos()
-  }, [isStandaloneMode])
+  }, [ session])
 
   async function cargarDatos() {
     try {
-      if (isStandaloneMode) {
-        const sess = await fetch('/api/auth/session', { credentials: 'include' }).then(r => r.json()).catch(() => null)
-        if (!sess?.user) return
-        setEsAdmin((sess.user as any)?.role === 'administrador')
-        const data = await api.usuarios.list()
-        setUsuarios(Array.isArray(data) ? data : [])
-      } else {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
-        const { data: miPerfil } = await supabase.from('app_usuario').select('role').eq('auth_user_id', user.id).single()
-        setEsAdmin(miPerfil?.role === 'administrador')
-        const { data, error } = await supabase.from('app_usuario').select('*').order('created_at', { ascending: false })
-        if (error) throw error
-        setUsuarios(data || [])
-      }
+    
+      if (!session?.user) return
+      setEsAdmin((session.user as any)?.role === 'administrador')
+      const data = await api.usuarios.list()
+      setUsuarios(Array.isArray(data) ? data : [])
     } catch (e) {
       console.error('Error cargando usuarios:', e)
       setUsuarios([])
@@ -77,29 +66,12 @@ export default function UsuariosPage() {
 
     setGuardando(true)
     try {
-      if (isStandaloneMode) {
-        if (editandoId) {
-          await api.usuarios.update(editandoId, { nombre: form.nombre?.trim() || null, role: form.role })
-          alert('Usuario actualizado correctamente')
-        } else {
-          await api.usuarios.create({ email: form.email.trim(), password: form.password, role: form.role, nombre: form.nombre?.trim() || null })
-          alert('Usuario creado correctamente')
-        }
-      } else if (editandoId) {
-        const { error } = await supabase.from('app_usuario').update({ nombre: form.nombre?.trim() || null, role: form.role }).eq('id', editandoId)
-        if (error) throw error
+
+      if (editandoId) {
+        await api.usuarios.update(editandoId, { nombre: form.nombre?.trim() || null, password: form.password, role: form.role })
         alert('Usuario actualizado correctamente')
       } else {
-        const { data: { session } } = await supabase.auth.getSession()
-        const token = session?.access_token
-        if (!token) throw new Error('Sesión no válida')
-        const res = await fetch('/api/admin/users', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ email: form.email.trim(), password: form.password, role: form.role, nombre: form.nombre?.trim() || null })
-        })
-        const json = await res.json()
-        if (!res.ok) throw new Error(json.error || 'Error al crear usuario')
+        await api.usuarios.create({ email: form.email.trim(), password: form.password, role: form.role, nombre: form.nombre?.trim() || null })
         alert('Usuario creado correctamente')
       }
       resetearFormulario()
@@ -111,21 +83,14 @@ export default function UsuariosPage() {
     }
   }
 
-  async function eliminarUsuario(id: string, authUserId?: string) {
+  async function eliminarUsuario(id: string) {
     if (!confirm('¿Seguro que desea eliminar este usuario?')) return
     if (!esAdmin) return alert('Solo administradores pueden eliminar usuarios')
 
     setGuardando(true)
     try {
-      if (isStandaloneMode) {
-        await api.usuarios.delete(id)
-      } else {
-        const res = await fetch(`/api/admin/users?authUserId=${authUserId || id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` } })
-        if (!res.ok) {
-          const json = await res.json()
-          throw new Error(json.error || 'Error al eliminar')
-        }
-      }
+
+      await api.usuarios.delete(id)
       cargarDatos()
     } catch (err: any) {
       alert(err.message || 'Error al eliminar')
@@ -249,7 +214,7 @@ export default function UsuariosPage() {
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                             </svg>
                           </button>
-                          <button type="button" onClick={() => eliminarUsuario(u.id, u.auth_user_id)} title="Eliminar" className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition">
+                          <button type="button" onClick={() => eliminarUsuario(u.id)} title="Eliminar" className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition">
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                             </svg>
@@ -302,20 +267,20 @@ export default function UsuariosPage() {
                 />
                 {editandoId && <p className="text-xs text-gray-500 mt-1">El email no se puede modificar</p>}
               </div>
-              {!editandoId && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña <span className="text-red-500">*</span></label>
-                  <input
-                    type="password"
-                    placeholder="Mínimo 6 caracteres"
-                    className="w-full border border-gray-300 p-2 rounded-lg text-gray-900 focus:ring-2 focus:ring-[#356375] focus:border-[#356375] outline-none"
-                    value={form.password}
-                    onChange={e => setForm({ ...form, password: e.target.value })}
-                    required
-                    minLength={6}
-                  />
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Contraseña {editandoId ? <span className="text-xs text-gray-500 font-normal">(dejar en blanco para no cambiar)</span> : <span className="text-red-500">*</span>}
+                </label>
+                <input
+                  type="password"
+                  placeholder={editandoId ? "Dejar en blanco para no cambiar" : "Mínimo 6 caracteres"}
+                  className="w-full border border-gray-300 p-2 rounded-lg text-gray-900 focus:ring-2 focus:ring-[#356375] focus:border-[#356375] outline-none"
+                  value={form.password}
+                  onChange={e => setForm({ ...form, password: e.target.value })}
+                  required={!editandoId}
+                  minLength={editandoId ? undefined : 6}
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Rol <span className="text-red-500">*</span></label>
                 <select

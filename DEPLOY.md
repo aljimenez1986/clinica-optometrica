@@ -1,6 +1,6 @@
 # Guía de Despliegue en Servidor Propio
 
-Esta guía explica todo lo que necesitas para desplegar tu aplicación Next.js de Clínica Optométrica en un servidor propio.
+Esta guía explica todo lo que necesitas para desplegar tu aplicación Next.js de Clínica Optométrica en un servidor propio usando PostgreSQL standalone.
 
 ## 📋 Requisitos del Servidor
 
@@ -14,19 +14,12 @@ Esta guía explica todo lo que necesitas para desplegar tu aplicación Next.js d
 
 ### 2. **Servicios Necesarios**
 
-#### A. **Base de Datos (Supabase)**
-Tu aplicación usa Supabase como backend. Tienes dos opciones:
+#### A. **Base de Datos (PostgreSQL standalone)**
+Tu aplicación utiliza PostgreSQL en modo standalone. Debes tener un servidor PostgreSQL disponible y configurado con la base de datos correcta.
 
-**Opción 1: Continuar usando Supabase Cloud (Recomendado para empezar)**
-- No necesitas instalar nada adicional
-- Solo necesitas las credenciales de tu proyecto Supabase
-- Ventaja: Gestión automática, backups, escalabilidad
-
-**Opción 2: Instalar Supabase Self-Hosted**
-- Requiere Docker y Docker Compose
-- Más complejo pero tienes control total
-- Necesitas: PostgreSQL, PostgREST, GoTrue (auth), Storage, etc.
-- Documentación: https://supabase.com/docs/guides/self-hosting
+- Puedes usar PostgreSQL local o un servicio de base de datos en la nube
+- La aplicación requiere `DATABASE_URL` en `.env.local`
+- El esquema debe crearse desde `database/schema-standalone.sql`
 
 #### B. **Servidor Web (Opcional pero recomendado)**
 - **Nginx** o **Apache**: Para servir la aplicación y manejar SSL
@@ -81,22 +74,17 @@ nano .env.local
 Agrega las siguientes variables:
 
 ```env
-# Variables de Supabase (obligatorias)
-NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-clave-anon-de-supabase
+DATABASE_URL=postgresql://usuario:contraseña@localhost:5432/optopad
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=tu-secreto-largo
 
 # Puerto para producción (opcional, por defecto 3000)
 PORT=3000
-
-# URL de la aplicación (para producción)
-NEXT_PUBLIC_APP_URL=https://tu-dominio.com
 ```
 
 **⚠️ IMPORTANTE**: 
-- Obtén estas credenciales desde tu panel de Supabase: https://app.supabase.com
-- Ve a tu proyecto → Settings → API
-- `NEXT_PUBLIC_SUPABASE_URL` = Project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` = anon/public key
+- No subas `.env.local` a Git
+- Usa permisos restrictivos: `chmod 600 .env.local`
 
 ### Paso 4: Instalar Dependencias y Compilar
 
@@ -218,79 +206,37 @@ sudo certbot renew --dry-run
 
 ## 🗄️ Configuración de la Base de Datos
 
-### Si usas Supabase Cloud:
-1. Ve a https://app.supabase.com
-2. Crea o selecciona tu proyecto
-3. Ve a SQL Editor y ejecuta este script para crear la tabla:
+### Requisitos de PostgreSQL
+- PostgreSQL instalado y accesible desde el servidor
+- `DATABASE_URL` definido en `.env.local`
+- Esquema creado con `database/schema-standalone.sql`
 
-```sql
--- Crear tabla de pacientes
-CREATE TABLE IF NOT EXISTS pacientes (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  id_paciente TEXT NOT NULL,
-  nombre TEXT,
-  genero TEXT NOT NULL,
-  genero_otro TEXT,
-  fecha_nacimiento DATE NOT NULL,
-  telefono TEXT,
-  email TEXT,
-  graduacion_od TEXT,
-  graduacion_oi TEXT,
-  observaciones TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
-);
+### Variables de entorno básicas
+Asegúrate de que `.env.local` contenga al menos:
 
--- Crear índice para búsquedas rápidas
-CREATE INDEX IF NOT EXISTS idx_pacientes_id_paciente ON pacientes(id_paciente);
-CREATE INDEX IF NOT EXISTS idx_pacientes_created_at ON pacientes(created_at DESC);
-
--- Habilitar Row Level Security (RLS)
-ALTER TABLE pacientes ENABLE ROW LEVEL SECURITY;
-
--- Política: Solo usuarios autenticados pueden leer/escribir
-CREATE POLICY "Usuarios autenticados pueden leer pacientes"
-  ON pacientes FOR SELECT
-  TO authenticated
-  USING (true);
-
-CREATE POLICY "Usuarios autenticados pueden insertar pacientes"
-  ON pacientes FOR INSERT
-  TO authenticated
-  WITH CHECK (true);
-
-CREATE POLICY "Usuarios autenticados pueden eliminar pacientes"
-  ON pacientes FOR DELETE
-  TO authenticated
-  USING (true);
+```env
+DATABASE_URL=postgresql://usuario:contraseña@localhost:5432/optopad
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=tu-secreto-largo
 ```
 
-4. Ve a Authentication → Users y crea un usuario administrador
+### Crear el esquema de base de datos
+Ejecuta el script en PostgreSQL:
 
-### Si instalas Supabase Self-Hosted:
-Sigue la documentación oficial: https://supabase.com/docs/guides/self-hosting
-
-## 🔒 Seguridad
-
-### 1. Firewall
 ```bash
-# Configurar UFW (Ubuntu)
-sudo ufw allow 22/tcp    # SSH
-sudo ufw allow 80/tcp    # HTTP
-sudo ufw allow 443/tcp   # HTTPS
-sudo ufw enable
+psql "$DATABASE_URL" -f database/schema-standalone.sql
 ```
 
-### 2. Actualizaciones de Seguridad
+### Crear el primer usuario administrador
+Ejecuta:
+
 ```bash
-# Configurar actualizaciones automáticas
-sudo apt install unattended-upgrades -y
-sudo dpkg-reconfigure -plow unattended-upgrades
+node scripts/create-admin-standalone.js
 ```
 
-### 3. Variables de Entorno
+### Ajustes de seguridad
 - **NUNCA** subas el archivo `.env.local` a Git
-- Asegúrate de que esté en `.gitignore`
+- Asegúrate de que `.env.local` está en `.gitignore`
 - Usa permisos restrictivos: `chmod 600 .env.local`
 
 ## 📊 Monitoreo y Mantenimiento
@@ -314,7 +260,7 @@ pm2 restart clinica-optometrica
 ```
 
 ### Backup de la base de datos:
-Si usas Supabase Cloud, los backups son automáticos. Si usas self-hosted, configura backups regulares de PostgreSQL.
+Configura backups regulares de PostgreSQL con `pg_dump` o la solución de tu proveedor.
 
 ## 🐛 Solución de Problemas
 
@@ -323,10 +269,10 @@ Si usas Supabase Cloud, los backups son automáticos. Si usas self-hosted, confi
 2. Revisa los logs: `pm2 logs` o `sudo journalctl -u clinica-optometrica`
 3. Verifica que el puerto 3000 esté libre: `sudo netstat -tulpn | grep 3000`
 
-### Error de conexión a Supabase:
-1. Verifica que las credenciales en `.env.local` sean correctas
-2. Verifica que tu IP del servidor esté permitida en Supabase (si usas restricciones)
-3. Prueba la conexión desde el servidor: `curl https://tu-proyecto.supabase.co`
+### Error de conexión a la base de datos:
+1. Verifica que `DATABASE_URL` en `.env.local` sea correcta
+2. Verifica que el servidor PostgreSQL esté en ejecución
+3. Prueba la conexión desde el servidor: `psql "$DATABASE_URL" -c '\l'`
 
 ### Error 502 Bad Gateway:
 1. Verifica que la aplicación esté corriendo: `pm2 list`
@@ -337,21 +283,21 @@ Si usas Supabase Cloud, los backups son automáticos. Si usas self-hosted, confi
 
 - [ ] Servidor con Node.js 18+ instalado
 - [ ] Código subido al servidor
-- [ ] Archivo `.env.local` configurado con credenciales de Supabase
+- [ ] Archivo `.env.local` configurado con `DATABASE_URL`, `NEXTAUTH_URL` y `NEXTAUTH_SECRET`
 - [ ] Dependencias instaladas (`npm install`)
 - [ ] Aplicación compilada (`npm run build`)
 - [ ] Aplicación corriendo con PM2 o systemd
 - [ ] Nginx configurado como proxy reverso
 - [ ] SSL/HTTPS configurado con Let's Encrypt
-- [ ] Tabla `pacientes` creada en Supabase
-- [ ] Usuario administrador creado en Supabase
+- [ ] Esquema de PostgreSQL creado con `database/schema-standalone.sql`
+- [ ] Usuario administrador creado con `node scripts/create-admin-standalone.js`
 - [ ] Firewall configurado
 - [ ] Dominio apuntando al servidor (DNS configurado)
 
 ## 🆘 Recursos Adicionales
 
 - **Documentación Next.js**: https://nextjs.org/docs/deployment
-- **Documentación Supabase**: https://supabase.com/docs
+- **Documentación PostgreSQL**: https://www.postgresql.org/docs/
 - **PM2**: https://pm2.keymetrics.io/docs/
 - **Nginx**: https://nginx.org/en/docs/
 - **Let's Encrypt**: https://letsencrypt.org/docs/
