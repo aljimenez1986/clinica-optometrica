@@ -27,8 +27,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       values.push(body.role)
       i++
     }
-  console.log('HOLA');
-     console.log(body.password);
     if (body.password !== undefined) {
       // if empty string, treat as no change
       if (body.password && String(body.password).trim() !== '') {
@@ -40,13 +38,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
     if (updates.length === 0) return NextResponse.json({ error: 'Sin campos' }, { status: 400 })
     values.push(id)
-  console.log( `UPDATE usuarios SET ${updates.join(', ')} WHERE id = $${i} RETURNING id, email, nombre, role, password_hash, created_at`,
-      values);
     const r = await db.query(
       `UPDATE usuarios SET ${updates.join(', ')} WHERE id = $${i} RETURNING id, email, nombre, role, password_hash, created_at`,
       values
     )
-
 
     if (r.rows.length === 0) return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
     return NextResponse.json(r.rows[0])

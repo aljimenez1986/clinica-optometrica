@@ -21,8 +21,8 @@ const { Pool } = require('pg')
 const bcrypt = require('bcryptjs')
 
 const EMAIL = process.env.ADMIN_EMAIL || 'admin@optopad.local'
-const PASSWORD = process.env.ADMIN_PASSWORD || 'CambiarPassword123!'
-const NOMBRE = process.env.ADMIN_NOMBRE || 'Administrador'
+const PASSWORD = process.env.ADMIN_PASSWORD || 'optopad'
+const NOMBRE = process.env.ADMIN_NOMBRE || 'optopad'
 const ROLE = 'administrador'
 
 async function main() {
